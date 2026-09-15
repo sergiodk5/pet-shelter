@@ -216,14 +216,17 @@ src/
 │     ├─ pets.validators.ts
 │     ├─ pets.middleware.ts
 │     ├─ pets.repositories.ts
-│     └─ pets.types.ts
+│     ├─ pets.types.ts
+│     └─ pets.spec.ts
 ├─ shared/
 │  ├─ middleware/
 │  │  ├─ errorHandler.ts
+│  │  ├─ errorHandler.spec.ts
 │  │  └─ notFound.ts
 │  └─ types/
 │     └─ api.types.ts
 ├─ app.ts
+├─ app.spec.ts
 └─ server.ts
 ```
 
@@ -232,12 +235,11 @@ in that order. Adding a module means adding one `app.use` line.
 
 Deliberately absent, per §1. Add each at the moment it's needed, not before:
 
-| Not yet                                              | Add when                                      |
-| ---------------------------------------------------- | --------------------------------------------- |
-| `modules/pets/pets.services.ts`                      | business logic outgrows the controller        |
-| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                             |
-| `config/env.ts`, `config/db.ts`                      | env vars need validating, or a real DB lands  |
-| `*.spec.ts`                                          | the first test — `app.ts` already supports it |
+| Not yet                                              | Add when                                     |
+| ---------------------------------------------------- | -------------------------------------------- |
+| `modules/pets/pets.services.ts`                      | business logic outgrows the controller       |
+| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                            |
+| `config/env.ts`, `config/db.ts`                      | env vars need validating, or a real DB lands |
 
 The `app.ts` / `server.ts` split landed ahead of this. `app.ts` exports the configured
 app _without_ listening, so a test can import it and drive it on an ephemeral port —
@@ -257,6 +259,8 @@ which is what makes adding auth safe rather than hopeful.
    owns status and body.
 7. Add `<name>.services.ts` / `<name>.repositories.ts` when the controller stops
    being obvious. Not before.
+8. Add `<name>.spec.ts` beside the routes and drive them with supertest against
+   `app`.
 
 ---
 
@@ -264,11 +268,13 @@ which is what makes adding auth safe rather than hopeful.
 
 ```
 npm run dev        # nodemon: rebuild + restart on save
-npm run build      # rm -rf dist && npx tsc
+npm run build      # rm -rf dist && npx tsc -p tsconfig.build.json
 npm start          # build, then run
 npm run lint       # oxlint --type-aware src
 npm run format     # prettier --write .
 npm run typecheck  # tsc --noEmit
+npm test           # vitest run
+npm run test:cov   # vitest run --coverage
 ```
 
 `nodemon.json` watches `src/`, debounces 250ms (so a multi-file save triggers one
@@ -300,3 +306,13 @@ a future change to those defaults can't silently reformat everything.
 only), then `tsc --noEmit` on the whole project. oxlint runs with `--deny-warnings`, so
 a warning (a leftover `debugger`, an unused variable) blocks a commit just like an
 error.
+
+### Tests
+
+vitest + supertest. Specs sit next to the code they test as `*.spec.ts` and drive
+`app` through supertest, so no port is bound. Middleware is tested by mounting it on
+a throwaway Express app (see `errorHandler.spec.ts`).
+
+`tsconfig.json` includes the specs, so `tsc --noEmit` type-checks them; `build` uses
+`tsconfig.build.json`, which excludes them from `dist/`. Tests run in the **pre-push**
+hook rather than pre-commit, so commits stay fast and a failing test blocks the push.

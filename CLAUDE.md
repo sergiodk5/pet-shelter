@@ -14,17 +14,22 @@ on restart.
 
 ```bash
 npm run dev           # nodemon: rebuild + restart on save (http://localhost:8000)
-npm run build         # rm -rf dist && npx tsc
+npm run build         # rm -rf dist && npx tsc -p tsconfig.build.json
 npm start             # build, then node dist/server.js
 npm run lint          # oxlint --type-aware --deny-warnings src
 npm run lint:fix      # oxlint --type-aware --fix src
 npm run format        # prettier --write .
 npm run format:check  # prettier --check .
 npm run typecheck     # tsc --noEmit
+npm test              # vitest run
+npm run test:watch    # vitest
+npm run test:cov      # vitest run --coverage
 npm run commit        # commitizen prompt for a conventional commit message
 ```
 
-There is no test runner yet. Node 24 is required (`.nvmrc`, `engines`).
+Run one spec file, or one test by name:
+`npx vitest run src/modules/pets/pets.spec.ts -t "rejects id"`. Node 24 is required
+(`.nvmrc`, `engines`).
 
 ## Toolchain constraints (TypeScript 7)
 
@@ -36,6 +41,10 @@ exposes the JS compiler API (`require("typescript")` has only `version`). Conseq
 - **Dev is compile-then-run**: nodemon runs `npm run build && node dist/server.js`.
 - **`build` deletes `dist/` first** on purpose: `tsc` never removes stale output, so a
   deleted or renamed source would otherwise keep being served.
+- **Two tsconfigs**: `tsconfig.json` includes `*.spec.ts`, so `tsc --noEmit` (and the
+  pre-commit hook) type-checks tests; `build` uses `tsconfig.build.json`, which excludes
+  them from `dist/`. `tsconfig.json` sets `include: ["src"]` so root-level tool configs
+  like `vitest.config.ts` stay out of the program (they'd violate `rootDir: src`).
 - **Linting is oxlint**, with type-aware rules from `oxlint-tsgolint` (built on TS 7).
   Config is `.oxlintrc.json`.
 - `package.json` is `"type": "commonjs"`, so tool configs are JSON (`.commitlintrc.json`,
@@ -47,7 +56,8 @@ exposes the JS compiler API (`require("typescript")` has only `version`). Conseq
 Commit messages must follow Conventional Commits (commitlint on `commit-msg`). The
 `pre-commit` hook runs lint-staged — oxlint `--fix --deny-warnings` then Prettier on staged
 files — followed by `tsc --noEmit` on the whole project. Lint **warnings** block commits,
-not just errors (e.g. a leftover `debugger` or an unused variable). When a hook fails, fix
+not just errors (e.g. a leftover `debugger` or an unused variable). The `pre-push` hook runs
+`npm test`, so a failing test blocks the push rather than the commit. When a hook fails, fix
 the cause rather than bypassing it with `--no-verify`.
 
 ## Architecture
@@ -79,6 +89,9 @@ for it. Read it before adding a module or moving code. The load-bearing points:
 - **Adoption status is derived, not stored**: a pet is adopted iff it has an
   `adoptionDate` (`isAdopted` in the pets controller). There is no `adopted` field; the
   `?adopted=` query filter is computed from it.
+- **Tests** are colocated `*.spec.ts` files run by vitest. HTTP behaviour is tested with
+  supertest against `app` (no port bound). Middleware is tested by mounting it on a
+  throwaway Express app with a route that throws (see `errorHandler.spec.ts`).
 - Validation is hand-rolled on purpose; the documented trigger for adopting Zod is adding
   create/update endpoints.
 

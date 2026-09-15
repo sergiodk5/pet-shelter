@@ -51,14 +51,28 @@ The API listens on **http://localhost:8000**.
 | Command                | What it does                                               |
 | ---------------------- | ---------------------------------------------------------- |
 | `npm run dev`          | Watch `src/`, rebuild and restart on change (nodemon)      |
-| `npm run build`        | Clean `dist/` and compile with `tsc`                       |
+| `npm run build`        | Clean `dist/` and compile with `tsc` (specs excluded)      |
 | `npm start`            | Build, then run `dist/server.js`                           |
 | `npm run lint`         | Lint `src/` with oxlint, including type-aware rules        |
 | `npm run lint:fix`     | Lint and apply automatic fixes                             |
 | `npm run format`       | Format the repo with Prettier                              |
 | `npm run format:check` | Check formatting without changing files                    |
 | `npm run typecheck`    | Type-check with `tsc --noEmit`                             |
+| `npm test`             | Run the test suite once (vitest)                           |
+| `npm run test:watch`   | Run tests in watch mode                                    |
+| `npm run test:cov`     | Run tests with a coverage report                           |
 | `npm run commit`       | Write a commit message with the guided prompt (commitizen) |
+
+### Tests
+
+Specs live next to the code as `*.spec.ts` and use [vitest](https://vitest.dev/) with
+[supertest](https://github.com/forwardemail/supertest), which drives the Express app
+directly without starting a server.
+
+```bash
+npx vitest run src/modules/pets/pets.spec.ts            # one file
+npx vitest run src/modules/pets/pets.spec.ts -t "rejects id"  # one test by name
+```
 
 ---
 
@@ -141,12 +155,13 @@ fix(pets): reject non-numeric ids
 docs: document the pets endpoints
 ```
 
-Git hooks check every commit:
+Git hooks check every commit and push:
 
 | Hook         | Check                                                                                                                                                                        |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pre-commit` | lint-staged runs oxlint (with fixes) and Prettier on the staged files, then `tsc --noEmit` checks types. The commit is blocked on lint errors, lint warnings or type errors. |
 | `commit-msg` | commitlint. The commit is blocked if the message doesn't follow the convention.                                                                                              |
+| `pre-push`   | `npm test`. The push is blocked if any test fails.                                                                                                                           |
 
 Run `npm run commit` for a guided prompt, or write the message yourself with
 `git commit`. The hooks run either way.

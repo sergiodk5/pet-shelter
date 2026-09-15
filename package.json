@@ -4,7 +4,7 @@
   "description": "",
   "main": "dist/server.js",
   "scripts": {
-    "build": "rm -rf dist && npx tsc",
+    "build": "rm -rf dist && npx tsc -p tsconfig.build.json",
     "start": "npm run build && node dist/server.js",
     "dev": "nodemon",
     "lint": "oxlint --type-aware --deny-warnings src",
@@ -12,6 +12,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
     "commit": "cz",
     "prepare": "husky"
   },
@@ -38,6 +41,8 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.5.1",
+    "@types/supertest": "^7.2.1",
+    "@vitest/coverage-v8": "^5.0.1",
     "commitizen": "^4.3.2",
     "cz-conventional-changelog": "^3.3.0",
     "husky": "^9.1.7",
@@ -46,6 +51,8 @@
     "oxlint": "^1.83.0",
     "oxlint-tsgolint": "^7.0.2001",
     "prettier": "^3.9.6",
-    "typescript": "^7.0.2"
+    "supertest": "^7.2.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
   }
 }

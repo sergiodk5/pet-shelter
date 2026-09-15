@@ -23,7 +23,9 @@ coverage/
 .DS_Store
 Thumbs.db
 
-# Editors
-.vscode/
+# Editors — share project VS Code settings, keep everything else personal
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 *.swp

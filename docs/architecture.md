@@ -316,3 +316,10 @@ a throwaway Express app (see `errorHandler.spec.ts`).
 `tsconfig.json` includes the specs, so `tsc --noEmit` type-checks them; `build` uses
 `tsconfig.build.json`, which excludes them from `dist/`. Tests run in the **pre-push**
 hook rather than pre-commit, so commits stay fast and a failing test blocks the push.
+
+### CI
+
+`.github/workflows/ci.yml` runs `npm ci`, then `format:check`, `lint`, `typecheck`, `test` and `build` on pushes to
+`master` and on pull requests, using the Node version from `.nvmrc`. It sets `HUSKY=0`,
+as husky recommends, so `npm ci` doesn't install git hooks on the runner. Superseded
+pull-request runs are cancelled; runs on `master` always finish.

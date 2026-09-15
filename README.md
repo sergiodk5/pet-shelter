@@ -1,5 +1,7 @@
 # Pet Shelter API
 
+[![CI](https://github.com/sergiodk5/pet-shelter/actions/workflows/ci.yml/badge.svg)](https://github.com/sergiodk5/pet-shelter/actions/workflows/ci.yml)
+
 A REST API for running an animal shelter: the shelter registers the pets in its
 care and puts them up for adoption, users request to adopt a pet, and the shelter
 keeps track of those requests through to a decision.
@@ -165,6 +167,9 @@ Git hooks check every commit and push:
 
 Run `npm run commit` for a guided prompt, or write the message yourself with
 `git commit`. The hooks run either way.
+
+GitHub Actions also runs `format:check`, `lint`, `typecheck`, `test` and `build` on every push to
+`master` and on pull requests ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 ---
 

@@ -60,6 +60,13 @@ not just errors (e.g. a leftover `debugger` or an unused variable). The `pre-pus
 `npm test`, so a failing test blocks the push rather than the commit. When a hook fails, fix
 the cause rather than bypassing it with `--no-verify`.
 
+## CI
+
+`.github/workflows/ci.yml` runs on pushes to `master` and on pull requests: `npm ci`, then
+`format:check`, `lint`, `typecheck`, `test` and `build`, on the Node version in `.nvmrc`. It
+sets `HUSKY=0` so `npm ci` doesn't install git hooks on the runner. CI runs the same npm
+scripts as local development, so a change that passes them locally should pass CI.
+
 ## Architecture
 
 `docs/architecture.md` is the authoritative reference: it records each rule and the reason

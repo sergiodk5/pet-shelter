@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import"],
+  "options": {
+    "typeAware": true
+  },
+  "rules": {
+    "typescript/no-floating-promises": "error"
+  },
+  "overrides": [
+    {
+      "files": ["src/shared/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/modules/**"],
+                "message": "shared/ must not import from modules/ (docs/architecture.md §2.1)"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

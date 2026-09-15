@@ -7,6 +7,11 @@
     "build": "rm -rf dist && npx tsc",
     "start": "npm run build && node dist/server.js",
     "dev": "nodemon",
+    "lint": "oxlint --type-aware src",
+    "lint:fix": "oxlint --type-aware --fix src",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
     "commit": "cz",
     "prepare": "husky"
   },
@@ -14,6 +19,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=24"
+  },
   "config": {
     "commitizen": {
       "path": "cz-conventional-changelog"
@@ -33,7 +41,11 @@
     "commitizen": "^4.3.2",
     "cz-conventional-changelog": "^3.3.0",
     "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
     "nodemon": "^3.1.14",
+    "oxlint": "^1.83.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "prettier": "^3.9.6",
     "typescript": "^7.0.2"
   }
 }

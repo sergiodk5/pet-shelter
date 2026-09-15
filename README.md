@@ -143,10 +143,10 @@ docs: document the pets endpoints
 
 Git hooks check every commit:
 
-| Hook         | Check                                                                                                                                                  |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pre-commit` | lint-staged runs oxlint (with fixes) and Prettier on the staged files, then `tsc --noEmit` checks types. The commit is blocked on lint or type errors. |
-| `commit-msg` | commitlint. The commit is blocked if the message doesn't follow the convention.                                                                        |
+| Hook         | Check                                                                                                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pre-commit` | lint-staged runs oxlint (with fixes) and Prettier on the staged files, then `tsc --noEmit` checks types. The commit is blocked on lint errors, lint warnings or type errors. |
+| `commit-msg` | commitlint. The commit is blocked if the message doesn't follow the convention.                                                                                              |
 
 Run `npm run commit` for a guided prompt, or write the message yourself with
 `git commit`. The hooks run either way.

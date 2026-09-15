@@ -297,4 +297,6 @@ if typescript-eslint adds TypeScript 7 support.
 a future change to those defaults can't silently reformat everything.
 
 **Pre-commit** runs lint-staged (oxlint with fixes, then Prettier, on staged files
-only), then `tsc --noEmit` on the whole project.
+only), then `tsc --noEmit` on the whole project. oxlint runs with `--deny-warnings`, so
+a warning (a leftover `debugger`, an unused variable) blocks a commit just like an
+error.

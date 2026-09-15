@@ -1,4 +1,4 @@
 {
-  "*.ts": ["oxlint --type-aware --fix", "prettier --write"],
+  "*.ts": ["oxlint --type-aware --fix --deny-warnings", "prettier --write"],
   "*.{json,md}": "prettier --write"
 }

@@ -56,15 +56,18 @@ These are the load-bearing ones. Everything else is taste.
 
 > Any module may import from `shared/`. `shared/` never imports from a module.
 
-This single rule is what keeps the tree from tangling. It's also *why*
+This single rule is what keeps the tree from tangling. It's also _why_
 `requireAuth` can't live in `modules/auth/` — `pets` would end up depending on the
 auth feature.
 
+Lint enforces it: `.oxlintrc.json` fails any file under `src/shared/` that imports
+from `modules/`.
+
 ### 2.2 Middleware guards, validators produce
 
-| Job | Shape | Home |
-|---|---|---|
-| Pass or reject, produces nothing | `(req, res, next)` | `*.middleware.ts` |
+| Job                                        | Shape                       | Home              |
+| ------------------------------------------ | --------------------------- | ----------------- |
+| Pass or reject, produces nothing           | `(req, res, next)`          | `*.middleware.ts` |
 | Returns a typed value the handler consumes | `(input) => value \| error` | `*.validators.ts` |
 
 `validateNumericId` is a guard: the controller never learns it ran, and doesn't
@@ -74,7 +77,7 @@ use.
 Middleware has no type-safe way to hand a value onward — only `res.locals`, whose
 type is an **assertion that the middleware ran**, not a proof. TypeScript will
 happily let you read `res.locals.filters` on a route where the middleware was never
-mounted. A validator that the controller *calls* can't fail that way, because you
+mounted. A validator that the controller _calls_ can't fail that way, because you
 can see the value being produced.
 
 Revisit this only when 3+ routes need the same parsed input; at that point the
@@ -100,7 +103,7 @@ Express and body-parser already use:
 
 ```ts
 const status = err.status ?? 500;
-if (status >= 500) console.error(err);          // 4xx are client mistakes, not faults
+if (status >= 500) console.error(err); // 4xx are client mistakes, not faults
 res.status(status).json({
   message: err.expose ? err.message : "Something went wrong.",
 });
@@ -130,9 +133,9 @@ Hand-rolled for now, deliberately. The threshold to adopt Zod is **create/update
 
 - `Pet` is 9 top-level fields + 3 nested, with dates and a nullable string —
   roughly 70–90 lines of hand-written checks.
-- `update` is *the same rules, optional*. Hand-rolled, that's either duplication or
+- `update` is _the same rules, optional_. Hand-rolled, that's either duplication or
   bespoke partial-application machinery. With a schema it's `.partial()`.
-- `z.infer` derives the type *from* the validator, so the two can't drift — which is
+- `z.infer` derives the type _from_ the validator, so the two can't drift — which is
   exactly the failure that produced a `species.toLowerCase is not a function` crash
   when a hand-written type promised something nothing enforced.
 
@@ -144,13 +147,13 @@ Until then, validators return `{ value } | { error }` and the controller branche
 
 Auth is two things wearing one name, and they live in different places.
 
-| | What | Where |
-|---|---|---|
-| Feature | login, register, refresh, password reset | `modules/auth/` |
-| Guard | verify token → attach `req.user` | `shared/middleware/requireAuth.ts` |
+|         | What                                     | Where                              |
+| ------- | ---------------------------------------- | ---------------------------------- |
+| Feature | login, register, refresh, password reset | `modules/auth/`                    |
+| Guard   | verify token → attach `req.user`         | `shared/middleware/requireAuth.ts` |
 
-**Authentication and authorization stay separate.** `requireAuth` answers *who are
-you*; `requireRole("admin")` answers *may you*. Merging them means re-checking
+**Authentication and authorization stay separate.** `requireAuth` answers _who are
+you_; `requireRole("admin")` answers _may you_. Merging them means re-checking
 identity inside permission logic.
 
 **Default-deny.** Mount public routes first, then `app.use(requireAuth)` before the
@@ -164,7 +167,9 @@ the guard ran; it doesn't prove it:
 ```ts
 declare global {
   namespace Express {
-    interface Request { user?: AuthUser }
+    interface Request {
+      user?: AuthUser;
+    }
   }
 }
 ```
@@ -182,7 +187,7 @@ which is the second reason for default-deny.
 
 > Decision: NestJS uses singular (`cats.controller.ts`). We keep plural to match the
 > existing scaffold. Renaming buys nothing, and what we're taking from NestJS is the
-> *module structure*, which is independent of file naming. Consistency with
+> _module structure_, which is independent of file naming. Consistency with
 > ourselves beats consistency with a framework we're not using.
 
 **Route ownership** — a module owns its router and its paths. `app.ts` only mounts
@@ -192,7 +197,7 @@ it: `app.use("/pets", petRouter)`.
 business rules to services, persistence to repositories. If a controller is making
 decisions, that logic wants to move down a layer.
 
-**`app.ts` / `server.ts` split** — `app.ts` exports the configured app *without*
+**`app.ts` / `server.ts` split** — `app.ts` exports the configured app _without_
 listening; `server.ts` calls `listen()`. That's what lets integration tests drive
 the app without binding a port.
 
@@ -227,15 +232,15 @@ in that order. Adding a module means adding one `app.use` line.
 
 Deliberately absent, per §1. Add each at the moment it's needed, not before:
 
-| Not yet | Add when |
-|---|---|
-| `modules/pets/pets.services.ts` | business logic outgrows the controller |
-| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3) |
-| `config/env.ts`, `config/db.ts` | env vars need validating, or a real DB lands |
-| `*.spec.ts` | the first test — `app.ts` already supports it |
+| Not yet                                              | Add when                                      |
+| ---------------------------------------------------- | --------------------------------------------- |
+| `modules/pets/pets.services.ts`                      | business logic outgrows the controller        |
+| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                             |
+| `config/env.ts`, `config/db.ts`                      | env vars need validating, or a real DB lands  |
+| `*.spec.ts`                                          | the first test — `app.ts` already supports it |
 
 The `app.ts` / `server.ts` split landed ahead of this. `app.ts` exports the configured
-app *without* listening, so a test can import it and drive it on an ephemeral port —
+app _without_ listening, so a test can import it and drive it on an ephemeral port —
 which is what makes adding auth safe rather than hopeful.
 
 ---
@@ -258,9 +263,12 @@ which is what makes adding auth safe rather than hopeful.
 ## 7. Dev workflow
 
 ```
-npm run dev      # nodemon: rebuild + restart on save
-npm run build    # rm -rf dist && npx tsc
-npm start        # build, then run
+npm run dev        # nodemon: rebuild + restart on save
+npm run build      # rm -rf dist && npx tsc
+npm start          # build, then run
+npm run lint       # oxlint --type-aware src
+npm run format     # prettier --write .
+npm run typecheck  # tsc --noEmit
 ```
 
 `nodemon.json` watches `src/`, debounces 250ms (so a multi-file save triggers one
@@ -275,3 +283,18 @@ imported, still served, and you end up debugging code that no longer exists in
 ships the legacy JS compiler API that ts-node is built on (`require("typescript")`
 exposes only `version`). Compile-then-run is the supported path, and it keeps dev
 and prod on the identical `tsc` invocation.
+
+### Linting and formatting
+
+**oxlint, not ESLint.** typescript-eslint throws on startup under TypeScript 7,
+because it's built on the old JS compiler API. The only workaround is installing
+TypeScript 6 alongside 7 under the `typescript` package name. oxlint needs no
+workaround: its type-aware rules come from `oxlint-tsgolint`, which is built on the
+TypeScript 7 compiler. NestJS's official starter made the same switch. Revisit this
+if typescript-eslint adds TypeScript 7 support.
+
+**Prettier** formats the repo. `.prettierrc.json` spells out Prettier's defaults, so
+a future change to those defaults can't silently reformat everything.
+
+**Pre-commit** runs lint-staged (oxlint with fixes, then Prettier, on staged files
+only), then `tsc --noEmit` on the whole project.

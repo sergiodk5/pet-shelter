@@ -4,7 +4,6 @@ export type Pet = {
   species: string;
   breed: string;
   age: number;
-  adopted: boolean;
   intakeDate: Date;
   adoptionDate?: Date;
   medicalRecord: {

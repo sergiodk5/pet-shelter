@@ -7,7 +7,6 @@ export const pets: Pet[] = [
     species: "Dog",
     breed: "Border Collie",
     age: 3,
-    adopted: false,
     intakeDate: new Date("2024-06-15"),
     medicalRecord: {
       vaccinations: ["Rabies", "Distemper", "Parvovirus"],
@@ -22,8 +21,8 @@ export const pets: Pet[] = [
     species: "Cat",
     breed: "Siamese",
     age: 2,
-    adopted: true,
     intakeDate: new Date("2024-01-01"),
+    adoptionDate: new Date("2024-03-10"),
     medicalRecord: {
       vaccinations: ["Rabies", "Distemper", "Parvovirus"],
       weightKg: 18.4,
@@ -37,8 +36,8 @@ export const pets: Pet[] = [
     species: "Cat",
     breed: "Street",
     age: 6,
-    adopted: true,
     intakeDate: new Date("2020-05-15"),
+    adoptionDate: new Date("2021-02-20"),
     medicalRecord: {
       vaccinations: ["Rabies", "Distemper", "Parvovirus"],
       weightKg: 18.4,

@@ -4,6 +4,9 @@ import { pets } from "./pets.repositories";
 import type { Pet } from "./pets.types";
 import { parseFilters } from "./pets.validators";
 
+// Adoption status is derived, not stored: a pet is adopted once it has an adoption date.
+const isAdopted = (pet: Pet): boolean => pet.adoptionDate !== undefined;
+
 export const getPets = (
   req: Request,
   res: Response<Pet[] | ErrorResponse>,
@@ -21,7 +24,7 @@ export const getPets = (
     pets.filter(
       (pet: Pet): boolean =>
         (species === undefined || pet.species.toLowerCase() === species) &&
-        (adopted === undefined || pet.adopted === adopted) &&
+        (adopted === undefined || isAdopted(pet) === adopted) &&
         (minAge === undefined || pet.age >= minAge) &&
         (maxAge === undefined || pet.age <= maxAge),
     ),

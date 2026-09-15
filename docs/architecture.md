@@ -128,7 +128,7 @@ Status codes in use: `400` bad input · `404` not found · `413` body too large 
 
 Hand-rolled for now, deliberately. The threshold to adopt Zod is **create/update**:
 
-- `Pet` is 10 top-level fields + 3 nested, with dates and a nullable string —
+- `Pet` is 9 top-level fields + 3 nested, with dates and a nullable string —
   roughly 70–90 lines of hand-written checks.
 - `update` is *the same rules, optional*. Hand-rolled, that's either duplication or
   bespoke partial-application machinery. With a schema it's `.partial()`.

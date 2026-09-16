@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "rm -rf dist && npx tsc -p tsconfig.build.json",
-    "start": "npm run build && node dist/server.js",
+    "start": "npm run build && node --env-file-if-exists=.env dist/server.js",
     "dev": "nodemon",
     "lint": "oxlint --type-aware --deny-warnings src",
     "lint:fix": "oxlint --type-aware --fix src",
@@ -32,7 +32,8 @@
   },
   "dependencies": {
     "cors": "^2.8.6",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "helmet": "^8.3.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",

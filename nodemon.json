@@ -3,5 +3,5 @@
   "ext": "ts,json",
   "ignore": ["src/**/*.spec.ts"],
   "delay": 250,
-  "exec": "npm run build && node dist/server.js"
+  "exec": "npm run build && node --env-file-if-exists=.env dist/server.js"
 }

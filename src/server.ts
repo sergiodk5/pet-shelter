@@ -1,7 +1,8 @@
 import { app } from "./app";
+import { loadConfig } from "./config/env";
 
-const PORT = 8000;
+const config = loadConfig();
 
-app.listen(PORT, (): void => {
-  console.log("Listening on port:", PORT);
+app.listen(config.port, (): void => {
+  console.log("Listening on port:", config.port);
 });

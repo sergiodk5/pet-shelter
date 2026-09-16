@@ -2,6 +2,26 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { app } from "./app";
 
+describe("security headers", () => {
+  it("does not advertise Express", async () => {
+    const res = await request(app).get("/pets");
+
+    expect(res.headers).not.toHaveProperty("x-powered-by");
+  });
+
+  it("sets Helmet's default headers", async () => {
+    const res = await request(app).get("/pets");
+
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.headers["content-security-policy"]).toContain(
+      "default-src 'self'",
+    );
+    expect(res.headers["strict-transport-security"]).toContain("max-age=");
+    expect(res.headers).toHaveProperty("referrer-policy");
+    expect(res.headers).toHaveProperty("x-frame-options");
+  });
+});
+
 describe("app", () => {
   it("returns a JSON 404 for unknown routes", async () => {
     const res = await request(app).get("/nope");

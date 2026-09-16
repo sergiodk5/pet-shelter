@@ -1,3 +1,9 @@
+export type MedicalRecord = {
+  vaccinations: string[];
+  weightKg: number;
+  microchipId: null | string;
+};
+
 export type Pet = {
   id: number;
   name: string;
@@ -6,10 +12,8 @@ export type Pet = {
   age: number;
   intakeDate: Date;
   adoptionDate?: Date;
-  medicalRecord: {
-    vaccinations: string[];
-    weightKg: number;
-    microchipId: null | string;
-  };
+  medicalRecord: MedicalRecord;
   photo: string;
 };
+
+export type NewPet = Omit<Pet, "id" | "adoptionDate">;

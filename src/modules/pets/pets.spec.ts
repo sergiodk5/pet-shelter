@@ -1,6 +1,9 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { app } from "../../app";
+import { createApp } from "../../app";
+import { loadConfig } from "../../config/env";
+
+const app = createApp(loadConfig({}));
 
 const ids = (body: Array<{ id: number }>): number[] =>
   body.map((pet) => pet.id);

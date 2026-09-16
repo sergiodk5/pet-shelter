@@ -1,6 +1,13 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { app } from "./app";
+import { createApp } from "./app";
+import { loadConfig } from "./config/env";
+
+/** Builds an app the way server.ts does, but with the given CORS_ORIGINS. */
+const appWith = (corsOrigins = ""): ReturnType<typeof createApp> =>
+  createApp(loadConfig({ CORS_ORIGINS: corsOrigins }));
+
+const app = appWith();
 
 describe("security headers", () => {
   it("does not advertise Express", async () => {
@@ -19,6 +26,65 @@ describe("security headers", () => {
     expect(res.headers["strict-transport-security"]).toContain("max-age=");
     expect(res.headers).toHaveProperty("referrer-policy");
     expect(res.headers).toHaveProperty("x-frame-options");
+  });
+});
+
+describe("CORS", () => {
+  const allowed = "https://shelter.example";
+  const alsoAllowed = "http://localhost:5173";
+  const configured = appWith(`${allowed},${alsoAllowed}`);
+
+  it.each([allowed, alsoAllowed])(
+    "allows a listed origin (%s)",
+    async (origin) => {
+      const res = await request(configured).get("/pets").set("Origin", origin);
+
+      expect(res.status).toBe(200);
+      expect(res.headers["access-control-allow-origin"]).toBe(origin);
+    },
+  );
+
+  it("sends no allow-origin header for an unlisted origin", async () => {
+    const res = await request(configured)
+      .get("/pets")
+      .set("Origin", "https://evil.example");
+
+    expect(res.status).toBe(200);
+    expect(res.headers).not.toHaveProperty("access-control-allow-origin");
+  });
+
+  it("blocks every origin when the allowlist is empty", async () => {
+    const res = await request(app).get("/pets").set("Origin", allowed);
+
+    expect(res.status).toBe(200);
+    expect(res.headers).not.toHaveProperty("access-control-allow-origin");
+  });
+
+  it("serves requests that send no Origin at all (curl, tests, same-origin)", async () => {
+    const res = await request(app).get("/pets");
+
+    expect(res.status).toBe(200);
+    expect(res.headers).not.toHaveProperty("access-control-allow-origin");
+  });
+
+  it("answers a preflight from a listed origin", async () => {
+    const res = await request(configured)
+      .options("/pets")
+      .set("Origin", allowed)
+      .set("Access-Control-Request-Method", "POST");
+
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-origin"]).toBe(allowed);
+    expect(res.headers["access-control-allow-methods"]).toContain("POST");
+  });
+
+  it("refuses a preflight from an unlisted origin", async () => {
+    const res = await request(configured)
+      .options("/pets")
+      .set("Origin", "https://evil.example")
+      .set("Access-Control-Request-Method", "POST");
+
+    expect(res.headers).not.toHaveProperty("access-control-allow-origin");
   });
 });
 

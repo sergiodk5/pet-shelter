@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
-import type { ErrorResponse } from "../types/api.types";
+import { NotFoundError } from "../errors/httpError";
 
 /** Terminal 404 — mounted after every route, before the error handler. */
-export const notFound = (_req: Request, res: Response<ErrorResponse>): void => {
-  res.status(404).json({ message: "No route found." });
+export const notFound = (_req: Request, _res: Response): void => {
+  throw new NotFoundError("No route found.");
 };

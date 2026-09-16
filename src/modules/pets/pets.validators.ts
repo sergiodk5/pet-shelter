@@ -28,9 +28,7 @@ const single = (v: unknown): string | undefined => {
   return typeof raw === "string" && raw.trim() !== "" ? raw : undefined;
 };
 
-export const parseFilters = (
-  query: Request["query"],
-): { filters: PetFilters } | { error: string } => {
+export const parseFilters = (query: Request["query"]): PetFilters => {
   const filters: PetFilters = {};
 
   const species = single(query.species);
@@ -41,7 +39,7 @@ export const parseFilters = (
   const adopted = single(query.adopted)?.toLowerCase();
   if (adopted !== undefined) {
     if (adopted !== "true" && adopted !== "false") {
-      return { error: "adopted must be 'true' or 'false'." };
+      throw new BadRequestError("adopted must be 'true' or 'false'.");
     }
 
     filters.adopted = adopted === "true";
@@ -53,13 +51,13 @@ export const parseFilters = (
 
     const n = Number(raw);
     if (!Number.isFinite(n)) {
-      return { error: `${key} must be a number.` };
+      throw new BadRequestError(`${key} must be a number.`);
     }
 
     filters[key] = n;
   }
 
-  return { filters };
+  return filters;
 };
 
 /** Only plain JSON objects: `null` and arrays are `typeof "object"` too. */

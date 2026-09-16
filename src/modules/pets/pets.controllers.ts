@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import type { ErrorResponse } from "../../shared/types/api.types";
+import { NotFoundError } from "../../shared/errors/httpError";
 import { addPet, pets } from "./pets.repositories";
 import type { Pet } from "./pets.types";
 import { parseFilters, parseNewPet } from "./pets.validators";
@@ -7,18 +7,8 @@ import { parseFilters, parseNewPet } from "./pets.validators";
 // Adoption status is derived, not stored: a pet is adopted once it has an adoption date.
 const isAdopted = (pet: Pet): boolean => pet.adoptionDate !== undefined;
 
-export const getPets = (
-  req: Request,
-  res: Response<Pet[] | ErrorResponse>,
-): void => {
-  const parsed = parseFilters(req.query);
-
-  if ("error" in parsed) {
-    res.status(400).json({ message: parsed.error });
-    return;
-  }
-
-  const { species, adopted, minAge, maxAge } = parsed.filters;
+export const getPets = (req: Request, res: Response<Pet[]>): void => {
+  const { species, adopted, minAge, maxAge } = parseFilters(req.query);
 
   res.json(
     pets.filter(
@@ -33,7 +23,7 @@ export const getPets = (
 
 export const getPetById = (
   req: Request<{ id: string }>,
-  res: Response<Pet | ErrorResponse>,
+  res: Response<Pet>,
 ): void => {
   const { id } = req.params;
   const pet: Pet | undefined = pets.find(
@@ -41,8 +31,7 @@ export const getPetById = (
   );
 
   if (!pet) {
-    res.status(404).json({ message: "No pet found." });
-    return;
+    throw new NotFoundError("No pet found.");
   }
 
   res.json(pet);

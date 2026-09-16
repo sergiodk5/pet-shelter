@@ -141,6 +141,19 @@ Hand-rolled for now, deliberately. The threshold to adopt Zod is **create/update
 
 Until then, validators return `{ value } | { error }` and the controller branches.
 
+### 2.6 Configuration is injected, not imported
+
+`src/config/env.ts` reads and validates the environment **once**, at startup, and
+`createApp(config)` receives the result. Nothing under `modules/` or `shared/` reads
+`process.env` directly.
+
+Two things follow. Invalid settings stop the process at boot instead of failing inside a
+request, and a spec can build an app with any configuration — `createApp(loadConfig({
+CORS_ORIGINS: "https://ok.example" }))` — without stubbing env vars or resetting modules.
+
+CORS is the first user: an empty allowlist means no cross-origin browser access at all, and
+the origins go to `cors` as an array so an unlisted origin gets no header rather than a 500.
+
 ---
 
 ## 3. Auth
@@ -244,9 +257,10 @@ Deliberately absent, per §1. Add each at the moment it's needed, not before:
 | `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                      |
 | `config/db.ts`                                       | a real DB lands                        |
 
-The `app.ts` / `server.ts` split landed ahead of this. `app.ts` exports the configured
-app _without_ listening, so a test can import it and drive it on an ephemeral port —
-which is what makes adding auth safe rather than hopeful.
+The `app.ts` / `server.ts` split landed ahead of this. `app.ts` exports
+`createApp(config)`, which builds the app _without_ listening, so a test can build one per
+case and drive it on an ephemeral port — which is what makes adding auth safe rather than
+hopeful.
 
 ---
 

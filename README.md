@@ -151,7 +151,7 @@ src/
 │  └─ pets/            # routes, controllers, validators, middleware, repositories, types
 ├─ shared/             # cross-cutting code: error handling, shared types
 ├─ config/             # validated env vars (PORT, NODE_ENV, CORS_ORIGINS)
-├─ app.ts              # builds the Express app (no listen, so tests can import it)
+├─ app.ts              # createApp(config): builds the app, never listens
 └─ server.ts           # starts the server
 ```
 

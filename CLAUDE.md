@@ -72,8 +72,9 @@ scripts as local development, so a change that passes them locally should pass C
 `docs/architecture.md` is the authoritative reference: it records each rule and the reason
 for it. Read it before adding a module or moving code. The load-bearing points:
 
-- **`app.ts` builds the Express app without listening; `server.ts` calls `listen()`.** Tests
-  can import `app` and drive it on an ephemeral port.
+- **`app.ts` exports `createApp(config)`, which builds the app without listening;
+  `server.ts` calls `createApp(loadConfig())` and `listen()`.** Specs build their own app per
+  test with any config — no env stubbing, no port bound.
 - **Configuration**: `src/config/env.ts` exports `loadConfig(env = process.env)`, which
   validates `PORT`, `NODE_ENV` and `CORS_ORIGINS` and **throws at startup** on bad input.
   `server.ts` calls it. `.env` is loaded by Node's `--env-file-if-exists` flag, not dotenv.
@@ -82,6 +83,10 @@ for it. Read it before adding a module or moving code. The load-bearing points:
   `<resource>.<role>.ts`, with the role **plural** (`pets.controllers.ts`,
   `pets.routes.ts`). Cross-cutting code lives in `src/shared/`. `app.ts` only mounts a
   module's router.
+- **CORS is an allowlist** from `CORS_ORIGINS`; empty (the default) means no cross-origin
+  browser access. The origins are passed to `cors` as an **array**, so an unlisted origin
+  just gets no `Access-Control-Allow-Origin` header — a custom origin function calling
+  `callback(new Error())` would turn it into a 500 instead.
 - **Security headers**: `app.use(helmet())` runs before every other middleware. It also
   removes `X-Powered-By`. Note its default CSP is `script-src 'self'`, which will need an
   exception on `/docs` when Swagger UI is added.

@@ -1,4 +1,4 @@
-import type { Pet } from "./pets.types";
+import type { NewPet, Pet } from "./pets.types";
 
 export const pets: Pet[] = [
   {
@@ -46,3 +46,16 @@ export const pets: Pet[] = [
     photo: "https://picsum.photos/id/239/200/300",
   },
 ];
+
+// The next id to hand out, seeded pass the demo data. A counter rather than
+// `max(id) + 1` so an id is never reused after a pet is removed - the same
+// guarantee a database's auto-increment gives you.
+let nextId = pets.reduce((max, pet) => Math.max(max, pet.id), 0) + 1;
+
+export const addPet = (newPet: NewPet): Pet => {
+  const pet: Pet = { id: nextId++, ...newPet };
+
+  pets.push(pet);
+
+  return pet;
+};

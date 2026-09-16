@@ -92,7 +92,7 @@ const requirePositiveNumber = (value: unknown, field: string): number => {
   return value;
 };
 
-/** Absent means "arriving today". Present must me a parseable date string. */
+/** Absent means "arriving today". Present must be a parseable date string. */
 const parseIntakeDate = (value: unknown): Date => {
   if (value === undefined) {
     return new Date();

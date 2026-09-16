@@ -48,13 +48,25 @@ npm run dev      # start the server; rebuilds and restarts when you save
 
 The API listens on **http://localhost:8000**.
 
+### Configuration
+
+All settings are optional; the defaults below are what you get with no `.env` at all. Copy
+`.env.example` to `.env` (gitignored) to override them. Invalid values stop the server at
+startup rather than failing later.
+
+| Variable       | Default       | Meaning                                                                                                                                                         |
+| -------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`         | `8000`        | Port the API listens on                                                                                                                                         |
+| `NODE_ENV`     | `development` | `development` or `production`                                                                                                                                   |
+| `CORS_ORIGINS` | _(empty)_     | Comma-separated browser origins allowed to call the API. Empty blocks all cross-origin browser requests; curl, server-to-server calls and tests are unaffected. |
+
 ### Scripts
 
 | Command                | What it does                                               |
 | ---------------------- | ---------------------------------------------------------- |
 | `npm run dev`          | Watch `src/`, rebuild and restart on change (nodemon)      |
 | `npm run build`        | Clean `dist/` and compile with `tsc` (specs excluded)      |
-| `npm start`            | Build, then run `dist/server.js`                           |
+| `npm start`            | Build, then run `dist/server.js` (loads `.env` if present) |
 | `npm run lint`         | Lint `src/` with oxlint, including type-aware rules        |
 | `npm run lint:fix`     | Lint and apply automatic fixes                             |
 | `npm run format`       | Format the repo with Prettier                              |
@@ -138,6 +150,7 @@ src/
 ├─ modules/            # one folder per business area
 │  └─ pets/            # routes, controllers, validators, middleware, repositories, types
 ├─ shared/             # cross-cutting code: error handling, shared types
+├─ config/             # validated env vars (PORT, NODE_ENV, CORS_ORIGINS)
 ├─ app.ts              # builds the Express app (no listen, so tests can import it)
 └─ server.ts           # starts the server
 ```

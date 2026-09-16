@@ -38,7 +38,7 @@ src/
 ├─ config/
 │  ├─ env.ts                      # validated env vars, fail fast at boot
 │  └─ db.ts
-├─ app.ts                         # wiring only: cors, json, routes, error handler
+├─ app.ts                         # wiring only: helmet, cors, json, routes, error handler
 └─ server.ts                      # listen()
 ```
 
@@ -225,6 +225,9 @@ src/
 │  │  └─ notFound.ts
 │  └─ types/
 │     └─ api.types.ts
+├─ config/
+│  ├─ env.ts
+│  └─ env.spec.ts
 ├─ app.ts
 ├─ app.spec.ts
 └─ server.ts
@@ -235,11 +238,11 @@ in that order. Adding a module means adding one `app.use` line.
 
 Deliberately absent, per §1. Add each at the moment it's needed, not before:
 
-| Not yet                                              | Add when                                     |
-| ---------------------------------------------------- | -------------------------------------------- |
-| `modules/pets/pets.services.ts`                      | business logic outgrows the controller       |
-| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                            |
-| `config/env.ts`, `config/db.ts`                      | env vars need validating, or a real DB lands |
+| Not yet                                              | Add when                               |
+| ---------------------------------------------------- | -------------------------------------- |
+| `modules/pets/pets.services.ts`                      | business logic outgrows the controller |
+| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                      |
+| `config/db.ts`                                       | a real DB lands                        |
 
 The `app.ts` / `server.ts` split landed ahead of this. `app.ts` exports the configured
 app _without_ listening, so a test can import it and drive it on an ephemeral port —

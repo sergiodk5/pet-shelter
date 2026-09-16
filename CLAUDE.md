@@ -15,7 +15,7 @@ on restart.
 ```bash
 npm run dev           # nodemon: rebuild + restart on save (http://localhost:8000)
 npm run build         # rm -rf dist && npx tsc -p tsconfig.build.json
-npm start             # build, then node dist/server.js
+npm start             # build, then node --env-file-if-exists=.env dist/server.js
 npm run lint          # oxlint --type-aware --deny-warnings src
 npm run lint:fix      # oxlint --type-aware --fix src
 npm run format        # prettier --write .
@@ -38,7 +38,7 @@ exposes the JS compiler API (`require("typescript")` has only `version`). Conseq
 
 - **No `ts-node`, no typescript-eslint.** Both depend on that API; typescript-eslint throws on
   startup under TS 7. Don't add them.
-- **Dev is compile-then-run**: nodemon runs `npm run build && node dist/server.js`.
+- **Dev is compile-then-run**: nodemon runs `npm run build && node --env-file-if-exists=.env dist/server.js`.
 - **`build` deletes `dist/` first** on purpose: `tsc` never removes stale output, so a
   deleted or renamed source would otherwise keep being served.
 - **Two tsconfigs**: `tsconfig.json` includes `*.spec.ts`, so `tsc --noEmit` (and the
@@ -74,10 +74,17 @@ for it. Read it before adding a module or moving code. The load-bearing points:
 
 - **`app.ts` builds the Express app without listening; `server.ts` calls `listen()`.** Tests
   can import `app` and drive it on an ephemeral port.
+- **Configuration**: `src/config/env.ts` exports `loadConfig(env = process.env)`, which
+  validates `PORT`, `NODE_ENV` and `CORS_ORIGINS` and **throws at startup** on bad input.
+  `server.ts` calls it. `.env` is loaded by Node's `--env-file-if-exists` flag, not dotenv.
+  Validation is hand-rolled to avoid a dependency; revisit when Zod arrives.
 - **Feature modules**: each resource lives in `src/modules/<resource>/` as
   `<resource>.<role>.ts`, with the role **plural** (`pets.controllers.ts`,
   `pets.routes.ts`). Cross-cutting code lives in `src/shared/`. `app.ts` only mounts a
   module's router.
+- **Security headers**: `app.use(helmet())` runs before every other middleware. It also
+  removes `X-Powered-By`. Note its default CSP is `script-src 'self'`, which will need an
+  exception on `/docs` when Swagger UI is added.
 - **Dependency rule**: modules may import from `shared/`; `shared/` never imports from
   `modules/`. oxlint enforces this with `no-restricted-imports`.
 - **Middleware guards, validators produce.** Pass/reject logic that hands nothing onward is

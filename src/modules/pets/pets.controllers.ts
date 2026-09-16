@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
 import type { ErrorResponse } from "../../shared/types/api.types";
-import { pets } from "./pets.repositories";
+import { addPet, pets } from "./pets.repositories";
 import type { Pet } from "./pets.types";
-import { parseFilters } from "./pets.validators";
+import { parseFilters, parseNewPet } from "./pets.validators";
 
 // Adoption status is derived, not stored: a pet is adopted once it has an adoption date.
 const isAdopted = (pet: Pet): boolean => pet.adoptionDate !== undefined;
@@ -46,4 +46,10 @@ export const getPetById = (
   }
 
   res.json(pet);
+};
+
+export const createPet = (req: Request, res: Response<Pet>): void => {
+  const pet = addPet(parseNewPet(req.body));
+
+  res.status(201).location(`/pets/${pet.id}`).json(pet);
 };

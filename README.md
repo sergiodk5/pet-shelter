@@ -24,7 +24,8 @@ Built with Express 5 and TypeScript.
 | ------------------------ | ------------ |
 | List pets, with filters  | ✅ Available |
 | Get a pet by id          | ✅ Available |
-| Register / update pets   | 🔜 Planned   |
+| Register a pet           | ✅ Available |
+| Update / remove a pet    | 🔜 Planned   |
 | Users and authentication | 🔜 Planned   |
 | Adoption requests        | 🔜 Planned   |
 
@@ -88,6 +89,10 @@ npx vitest run src/modules/pets/pets.spec.ts            # one file
 npx vitest run src/modules/pets/pets.spec.ts -t "rejects id"  # one test by name
 ```
 
+Endpoints that write have their own spec file (`pets.post.spec.ts`). The demo data
+is module state, so a `POST` test would otherwise mutate the array the `GET` tests
+assert against; Vitest isolates module state per file, not per `describe`.
+
 ---
 
 ## API
@@ -131,6 +136,44 @@ curl http://localhost:8000/pets/1
 | `200`  | The pet                        |
 | `400`  | `id` is not a positive integer |
 | `404`  | No pet with that id            |
+
+### `POST /pets`
+
+Registers a pet. Send `Content-Type: application/json`.
+
+| Field                        | Type             | Required | Notes                                                           |
+| ---------------------------- | ---------------- | -------- | --------------------------------------------------------------- |
+| `name`                       | string           | yes      | Non-empty; surrounding whitespace is trimmed                    |
+| `species`                    | string           | yes      | Non-empty                                                       |
+| `breed`                      | string           | yes      | Non-empty                                                       |
+| `age`                        | integer          | yes      | `0` or more                                                     |
+| `photo`                      | string           | yes      | Non-empty                                                       |
+| `intakeDate`                 | date string      | no       | Defaults to now. Any format `Date` can parse, e.g. `2024-06-15` |
+| `medicalRecord`              | object           | yes      | See below                                                       |
+| `medicalRecord.vaccinations` | string[]         | yes      | May be empty                                                    |
+| `medicalRecord.weightKg`     | number           | yes      | Greater than `0`                                                |
+| `medicalRecord.microchipId`  | string \| `null` | no       | Defaults to `null`                                              |
+
+`id` is assigned by the shelter and `adoptionDate` is set when a pet is adopted —
+sending either is a `400`, as is any field not listed above.
+
+```bash
+curl -i -X POST http://localhost:8000/pets \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Luna","species":"Dog","breed":"Beagle","age":2,
+       "medicalRecord":{"vaccinations":["Rabies"],"weightKg":9.2,"microchipId":null},
+       "photo":"https://picsum.photos/id/240/200/300"}'
+```
+
+| Status | When                                                              |
+| ------ | ----------------------------------------------------------------- |
+| `201`  | The stored pet, with a `Location` header pointing at `/pets/{id}` |
+| `400`  | A field is missing, the wrong type, unknown, or server-owned      |
+
+The response body is the pet as stored — the same shape `GET /pets/:id` returns —
+so the server-assigned `id` and the normalized `intakeDate` come back without a
+second request. Validation reports the **first** problem it finds, not every
+problem.
 
 ### Other errors
 

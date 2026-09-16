@@ -5,10 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 Express 5 + TypeScript REST API for an animal shelter: pets are registered and put up for
-adoption, users request to adopt, and the shelter tracks those requests. Only `GET /pets`
-(with filters) and `GET /pets/:id` exist today; users, auth and adoption requests are
-planned. Pets are **in-memory demo data** in `src/modules/pets/pets.repositories.ts` and reset
-on restart.
+adoption, users request to adopt, and the shelter tracks those requests. `GET /pets` (with
+filters), `GET /pets/:id` and `POST /pets` exist today; update/delete, users, auth and
+adoption requests are planned. Pets are **in-memory demo data** in
+`src/modules/pets/pets.repositories.ts` and reset on restart.
 
 ## Commands
 
@@ -94,15 +94,20 @@ for it. Read it before adding a module or moving code. The load-bearing points:
   `modules/`. oxlint enforces this with `no-restricted-imports`.
 - **Middleware guards, validators produce.** Pass/reject logic that hands nothing onward is
   middleware (`validateNumericId`). Parsing that returns a typed value the handler needs is
-  a validator the controller calls explicitly (`parseFilters` returns
-  `{ filters } | { error }`) — not middleware writing to `res.locals`, whose type would be
-  an unchecked assertion.
-- **Errors**: every error body is `ErrorResponse` (`{ message }`, in
+  a validator the controller calls explicitly (`parseFilters` returns `PetFilters`,
+  `parseNewPet` returns `NewPet`) — not middleware writing to `res.locals`, whose type
+  would be an unchecked assertion. Both throw on bad input.
+- **Errors — throw, never format.** `errorHandler` is the only code that builds a response
+  body for an error; everything else throws an `HttpError` from
+  `src/shared/errors/httpError.ts` (`BadRequestError` 400, `NotFoundError` 404). `expose`
+  is derived from `status < 500`, never passed in, so a 5xx cannot leak its message. Add a
+  subclass when a feature needs that status, not in anticipation.
+- Every error body is `ErrorResponse` (`{ message }`, in
   `src/shared/types/api.types.ts`). The terminal `errorHandler` honours the `http-errors`
   contract: `err.status` sets the code (so body-parser's 400/413/415 pass through), and
   `err.message` is returned only when `err.expose` is true; otherwise it's a generic
   message and only 5xx are logged. It must keep **all four parameters** — Express detects
-  error handlers by arity.
+  error handlers by arity; dropping `_next` fails ~40 tests.
 - **Types stay next to what they describe**; promote to `shared/types/` only when modules in
   different layers must agree on the shape.
 - **Adoption status is derived, not stored**: a pet is adopted iff it has an
@@ -111,8 +116,12 @@ for it. Read it before adding a module or moving code. The load-bearing points:
 - **Tests** are colocated `*.spec.ts` files run by vitest. HTTP behaviour is tested with
   supertest against `app` (no port bound). Middleware is tested by mounting it on a
   throwaway Express app with a route that throws (see `errorHandler.spec.ts`).
-- Validation is hand-rolled on purpose; the documented trigger for adopting Zod is adding
-  create/update endpoints.
+  **Endpoints that write get their own spec file** (`pets.post.spec.ts`): the repository is
+  module state, and vitest isolates it per file, not per `describe`. Assert membership with
+  `toContain`, never an exact array.
+- Validation is hand-rolled on purpose. `POST /pets` shipped that way deliberately, to make
+  the cost concrete before adding Zod; the user will say when Zod arrives — don't propose
+  it unprompted. See `docs/architecture.md` §2.5 for the accepted limitations.
 
 When endpoints, scripts or conventions change, update `README.md` and
 `docs/architecture.md` to match.

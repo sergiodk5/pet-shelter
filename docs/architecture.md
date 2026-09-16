@@ -30,6 +30,8 @@ src/
 │  │  ├─ requireRole.ts
 │  │  ├─ errorHandler.ts
 │  │  └─ notFound.ts
+│  ├─ errors/
+│  │  └─ httpError.ts             # HttpError + one subclass per status in use
 │  ├─ types/
 │  │  └─ api.types.ts             # ErrorResponse and friends
 │  └─ lib/
@@ -65,14 +67,18 @@ from `modules/`.
 
 ### 2.2 Middleware guards, validators produce
 
-| Job                                        | Shape                       | Home              |
-| ------------------------------------------ | --------------------------- | ----------------- |
-| Pass or reject, produces nothing           | `(req, res, next)`          | `*.middleware.ts` |
-| Returns a typed value the handler consumes | `(input) => value \| error` | `*.validators.ts` |
+| Job                                        | Shape              | Home              |
+| ------------------------------------------ | ------------------ | ----------------- |
+| Pass or reject, produces nothing           | `(req, res, next)` | `*.middleware.ts` |
+| Returns a typed value the handler consumes | `(input) => value` | `*.validators.ts` |
+
+Both **throw** on bad input rather than writing a response — see §2.4.
 
 `validateNumericId` is a guard: the controller never learns it ran, and doesn't
-need to. `parseFilters` is a producer: it returns `PetFilters` the controller must
-use.
+need to. `parseFilters` and `parseNewPet` are producers: they return `PetFilters`
+and `NewPet`, which the controller must use. A producer's return type is
+unconditional — there is no error branch to forget, because failure leaves via
+`throw`.
 
 Middleware has no type-safe way to hand a value onward — only `res.locals`, whose
 type is an **assertion that the middleware ran**, not a proof. TypeScript will
@@ -92,9 +98,16 @@ Promote a type to `shared/types/` only when it passes this test:
 
 > **Do two or more modules, in different layers, have to agree on this shape?**
 
-`ErrorResponse` passes — `app.ts`, middleware, and every controller speak it.
-`PetFilters` doesn't — one file uses it. This test is what keeps `shared/types/`
-from decaying into a dumping ground.
+`PetFilters` fails — one file uses it. This test is what keeps `shared/types/` from
+decaying into a dumping ground.
+
+`ErrorResponse` is the honest edge case. Since §2.4's refactor it has exactly one
+importer, `errorHandler.ts`, so the letter of the test no longer passes. It stays in
+`shared/types/` anyway: it's the API's public contract — the shape of _every_ error
+this service can return — and the fact that one function now constructs them all is
+the property §2.4 was after, not evidence that the type is local to it. Promote for
+shared meaning, not for import count; the count is a proxy, and this is the case
+where the proxy misleads.
 
 ### 2.4 Errors
 
@@ -115,17 +128,57 @@ Why this shape:
   handles all eight of its error types (400 parse-failed, 413 too-large, 415
   unsupported-encoding, 403 verify-failed, …) with no case-specific code. The
   widely-copied `err instanceof SyntaxError` recipe handles exactly one of them.
-- **`err.expose`** — the `http-errors` flag meaning "safe to show the client",
-  which defaults to `false` for 5xx. Errors we throw ourselves have no flag, so
-  they get the generic message and the stack stays server-side.
+- **`err.expose`** — the `http-errors` flag meaning "safe to show the client".
+  Our own `HttpError` sets it too (below); a plain `Error` from anywhere else has
+  no flag, so it gets the generic message and the stack stays server-side.
 - **Only log 5xx** — otherwise every client typo reads as a server fault.
 
 The error handler must have **all four parameters**. Express identifies error
 handlers by arity; drop `_next` and it silently becomes ordinary middleware that
-never sees an error.
+never sees an error. This isn't just a warning any more — deleting `_next` fails
+40 of the 89 tests, because every 4xx in the app now travels through this function.
 
-Status codes in use: `400` bad input · `404` not found · `413` body too large ·
-`500` unexpected.
+#### Nothing else writes an error body
+
+> **Throw an `HttpError`. Never format an error response.**
+
+One rule, no judgement calls. `errorHandler` is the **only** place that constructs
+an `ErrorResponse`, and `api.types.ts` aside, the only file that imports the type.
+
+`shared/errors/httpError.ts` carries the contract:
+
+```ts
+export class HttpError extends Error {
+  readonly status: number;
+  readonly expose: boolean;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    this.expose = status < 500; // derived, never a constructor argument
+  }
+}
+```
+
+`expose` is **derived**, so a 5xx cannot be made to leak its message by a careless
+caller. Subclasses exist only for statuses actually in use — `BadRequestError`
+(400) and `NotFoundError` (404). Add one when a feature needs it, not in
+anticipation.
+
+**Why throw rather than `res.status().json()`:** a response object is only
+available to an Express handler. A service — the layer that arrives with adoption
+requests (§5) — has no `res`, so "this pet doesn't exist" has to be expressible as
+a throw regardless. Keeping one mechanism means the rule doesn't change when the
+decision moves down a layer.
+
+**Why `throw` rather than `next(err)`:** they're equivalent in Express 5, which
+catches synchronous throws from handlers and middleware, and rejected promises from
+async ones. Picking one removes the judgement call. `next(err)` remains necessary
+for an error raised in a **callback** — a stream `'error'` event, say — where there
+is no call stack to throw into.
+
+Status codes in use: `200` ok · `201` created · `400` bad input · `404` not found ·
+`413` body too large · `500` unexpected.
 
 ### 2.5 Validation
 
@@ -139,7 +192,20 @@ Hand-rolled for now, deliberately. The threshold to adopt Zod is **create/update
   exactly the failure that produced a `species.toLowerCase is not a function` crash
   when a hand-written type promised something nothing enforced.
 
-Until then, validators return `{ value } | { error }` and the controller branches.
+`POST /pets` landed hand-rolled on purpose, to make the cost concrete before
+reaching for the dependency. What it cost: `pets.validators.ts` is ~170 lines, of
+which six helpers (`requireNonEmptyString`, `requireNonNegativeInteger`,
+`requirePositiveNumber`, `parseIntakeDate`, `parseMedicalRecord`, `isRecord`) are
+things a schema library gives away. Two known limitations, accepted for now:
+
+- **First failure wins.** One message per request, not a list of everything wrong.
+- **Unknown keys nested inside `medicalRecord` are dropped, not rejected**, while
+  unknown keys at the top level are a 400. Zod's `.strict()` would make both a 400.
+
+One thing hand-rolling made visible, worth keeping when Zod arrives: the request
+body shape is **not** `NewPet`. On the wire `intakeDate` is an optional string; in
+`NewPet` it's a required `Date`. `parseNewPet` is the conversion between them —
+which is exactly what `z.input` vs `z.output` models.
 
 ### 2.6 Configuration is injected, not imported
 
@@ -230,12 +296,16 @@ src/
 │     ├─ pets.middleware.ts
 │     ├─ pets.repositories.ts
 │     ├─ pets.types.ts
-│     └─ pets.spec.ts
+│     ├─ pets.spec.ts
+│     └─ pets.post.spec.ts
 ├─ shared/
 │  ├─ middleware/
 │  │  ├─ errorHandler.ts
 │  │  ├─ errorHandler.spec.ts
 │  │  └─ notFound.ts
+│  ├─ errors/
+│  │  ├─ httpError.ts
+│  │  └─ httpError.spec.ts
 │  └─ types/
 │     └─ api.types.ts
 ├─ config/
@@ -251,11 +321,27 @@ in that order. Adding a module means adding one `app.use` line.
 
 Deliberately absent, per §1. Add each at the moment it's needed, not before:
 
-| Not yet                                              | Add when                               |
-| ---------------------------------------------------- | -------------------------------------- |
-| `modules/pets/pets.services.ts`                      | business logic outgrows the controller |
-| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                      |
-| `config/db.ts`                                       | a real DB lands                        |
+| Not yet                                              | Add when                                                                                       |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `modules/pets/pets.services.ts`                      | a rule spans more than one repository — first case: approving an adoption request              |
+| `modules/pets/pets.fixtures.ts`                      | a second spec file needs the same test data (also add it to `tsconfig.build.json`'s `exclude`) |
+| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                                                                              |
+| `config/db.ts`                                       | a real DB lands                                                                                |
+
+The services row is the one most likely to be added too early. NestJS generates a
+service per module because **dependency injection is how its controllers receive
+collaborators at all** — the layering is a consequence of the IoC container, not an
+independent rule. Express has no container, our controllers import directly, and
+specs drive the real app through supertest, so the indirection would buy nothing
+today: `createPet` is `addPet(parseNewPet(req.body))`, with no rule between parsing
+and storing to own.
+
+Approving an adoption request is the first thing that genuinely doesn't fit: it
+reads and writes **two** repositories (pets and requests), and rejects on domain
+grounds — already adopted, request not pending — that are neither HTTP nor storage
+concerns. Note the filtering in `getPets` is _not_ the trigger: when a database
+lands it becomes a `WHERE` clause and moves **down** into the repository, not
+sideways into a service.
 
 The `app.ts` / `server.ts` split landed ahead of this. `app.ts` exports
 `createApp(config)`, which builds the app _without_ listening, so a test can build one per
@@ -272,8 +358,8 @@ hopeful.
    `<name>.validators.ts`.
 4. Mount in `app.ts`: `app.use("/<name>", <name>Router)`.
 5. Check the route is behind `requireAuth` unless it's deliberately public (§3).
-6. Errors: `next(err)` or throw — never format a 500 by hand. The shared handler
-   owns status and body.
+6. Errors: `throw` an `HttpError` — never format a response by hand. The shared
+   handler owns status and body (§2.4).
 7. Add `<name>.services.ts` / `<name>.repositories.ts` when the controller stops
    being obvious. Not before.
 8. Add `<name>.spec.ts` beside the routes and drive them with supertest against
@@ -333,6 +419,32 @@ a throwaway Express app (see `errorHandler.spec.ts`).
 `tsconfig.json` includes the specs, so `tsc --noEmit` type-checks them; `build` uses
 `tsconfig.build.json`, which excludes them from `dist/`. Tests run in the **pre-push**
 hook rather than pre-commit, so commits stay fast and a failing test blocks the push.
+
+**A spec file per endpoint when the endpoint writes.** `pets.post.spec.ts` is
+separate from `pets.spec.ts` because the in-memory repository is module state: a
+`POST` test mutates the array that `pets.spec.ts` asserts against exactly. Vitest
+gives each _file_ its own module registry, so a separate file starts from pristine
+seed data no matter what another file did — while two `describe` blocks in one file
+would only pass while they happened to run in the right order.
+
+Within a write spec, assert membership (`toContain`), never an exact array: earlier
+tests in the same file have already added rows.
+
+**Everything here is an integration test** — they drive helmet, `express.json`, the
+router, the validator and the repository, with nothing mocked. That's deliberate:
+status codes, the `Location` header and the error envelope _are_ the contract, and
+a unit test of `parseNewPet` couldn't prove `errorHandler` is wired up. The 21-row
+rejection table is arguably a unit test of a pure function paying for a full request
+cycle; at 89 tests in ~260ms that's not worth fixing. Split with Vitest's
+`test.projects` (`workspace` was deprecated in 3.2) when the suite passes a couple
+of seconds, or when a real database forces setup and teardown.
+
+**Mutation-test anything load-bearing.** A suite that passes proves nothing until
+it's been watched to fail: break the source deliberately, confirm the right tests
+go red, revert. Deleting `errorHandler`'s 4th parameter, ignoring `err.status` or
+hardcoding `expose = false` each fail 33–40 tests — which is both the proof the
+suite works and a reminder that `errorHandler.ts` is now the highest-consequence
+file in the repo.
 
 ### CI
 

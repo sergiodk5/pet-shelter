@@ -47,7 +47,7 @@ export const pets: Pet[] = [
   },
 ];
 
-// The next id to hand out, seeded pass the demo data. A counter rather than
+// The next id to hand out, seeded past the demo data. A counter rather than
 // `max(id) + 1` so an id is never reused after a pet is removed - the same
 // guarantee a database's auto-increment gives you.
 let nextId = pets.reduce((max, pet) => Math.max(max, pet.id), 0) + 1;

@@ -75,8 +75,8 @@ from `modules/`.
 Both **throw** on bad input rather than writing a response — see §2.4.
 
 `validateNumericId` is a guard: the controller never learns it ran, and doesn't
-need to. `parseFilters` and `parseNewPet` are producers: they return `PetFilters`
-and `NewPet`, which the controller must use. A producer's return type is
+need to. `parseFilters`, `parseNewPet` and `parseReplacementPet` are producers: they
+return `PetFilters`, `NewPet` and `PetUpdate`, which the controller must use. A producer's return type is
 unconditional — there is no error branch to forget, because failure leaves via
 `throw`.
 
@@ -136,7 +136,8 @@ Why this shape:
 The error handler must have **all four parameters**. Express identifies error
 handlers by arity; drop `_next` and it silently becomes ordinary middleware that
 never sees an error. This isn't just a warning any more — deleting `_next` fails
-40 of the 89 tests, because every 4xx in the app now travels through this function.
+roughly a third of the suite, because every 4xx in the app travels through this
+function.
 
 #### Nothing else writes an error body
 
@@ -257,6 +258,54 @@ Still true and worth remembering: the wire shape is **not** `NewPet`. On the wir
 `.refine().transform().default()` pipe is that conversion, and it's what `z.input` vs
 `z.output` models.
 
+#### PUT, not PATCH
+
+Both are idempotent for our purposes — the common claim that PATCH isn't is only true
+of _operation_-style bodies (`{"op":"add","path":"/vaccinations/-"}`); a merge patch of
+literal values applied twice gives the same result. So that wasn't the deciding factor.
+
+PUT won because **adoption is clearable**. Under PUT, omitting `adoptionDate` returns
+the pet to the shelter, which is a real event. Under PATCH, omission means "don't
+touch it", so clearing would need `null` to mean something different from absent — a
+distinction every client has to get right. PUT also makes an empty body `{}` an
+ordinary missing-required-fields `400` rather than a case to design.
+
+The cost, and it is real: a client must send the whole pet, so one hand-built body
+that forgets `adoptionDate` silently un-adopts. That's the mirror of PATCH's ambiguity.
+If single-field updates are ever needed, PATCH can be added against
+`newPetSchema.partial()` — and `updatePet` is deliberately left unused as a name for it
+(the PUT controller is `replacePet`).
+
+#### PUT derives its schema from create
+
+`replacePetSchema` is `newPetSchema.extend({ … })` overriding exactly two keys, so every
+rule and every message is defined once and both endpoints move together. `.extend()`
+returns a new schema — create is unaffected. The conversion added **no new error
+messages**.
+
+The two overrides are what PUT _means_:
+
+- **`intakeDate` is required.** Create defaults it to now; keeping that here would
+  silently reset a pet's intake date on every edit.
+- **`adoptionDate` is writable**, as `dateString.nullish()` mapped to `undefined`. A
+  date adopts; `null` **or** omission returns the pet to the shelter. `null` is
+  accepted because a form clears a field by sending `null`, not by dropping the key —
+  and `null` already means "no value" in this API (`microchipId`).
+
+> **Neither override is type-checked.** Delete the `intakeDate` line and it falls back
+> to a default — output is still `Date`, so it compiles, and every PUT quietly resets
+> the intake date. Delete the `adoptionDate` line and it falls back to server-owned —
+> output is `undefined`, assignable to `adoptionDate?: Date`, so it compiles, and
+> adoption silently stops working. Both are verified by mutation instead: a missing
+> `intakeDate` must 400, and sending an `adoptionDate` must adopt. Don't delete those
+> tests.
+
+**Known asymmetry:** PUT accepts `adoptionDate: null`, POST rejects it as server-owned.
+A client sharing one form between create and edit has to drop the key when creating.
+Making POST lenient is not a one-liner — accepting `null` would store
+`adoptionDate: null`, and `isAdopted` tests `!== undefined`, so **every new pet would
+read as adopted** unless the schema also transformed it away.
+
 #### Query params need a wrapper
 
 Query strings aren't JSON: `?k=v` is a string, `?k=a&k=b` is an array, and `?k=` is
@@ -354,8 +403,11 @@ src/
 │     ├─ pets.middleware.ts
 │     ├─ pets.repositories.ts
 │     ├─ pets.types.ts
+│     ├─ pets.fixtures.ts
 │     ├─ pets.spec.ts
-│     └─ pets.post.spec.ts
+│     ├─ pets.post.spec.ts
+│     ├─ pets.put.spec.ts
+│     └─ pets.delete.spec.ts
 ├─ shared/
 │  ├─ middleware/
 │  │  ├─ errorHandler.ts
@@ -379,12 +431,30 @@ in that order. Adding a module means adding one `app.use` line.
 
 Deliberately absent, per §1. Add each at the moment it's needed, not before:
 
-| Not yet                                              | Add when                                                                                       |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `modules/pets/pets.services.ts`                      | a rule spans more than one repository — first case: approving an adoption request              |
-| `modules/pets/pets.fixtures.ts`                      | a second spec file needs the same test data (also add it to `tsconfig.build.json`'s `exclude`) |
-| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                                                                              |
-| `config/db.ts`                                       | a real DB lands                                                                                |
+| Not yet                                              | Add when                                                                          |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `modules/pets/pets.services.ts`                      | a rule spans more than one repository — first case: approving an adoption request |
+| `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                                                                 |
+| `config/db.ts`                                       | a real DB lands                                                                   |
+
+`pets.fixtures.ts` has since been added — PUT and DELETE specs were the second and
+third consumers of the same pet body. It is excluded from `tsconfig.build.json`, or
+test data would compile into `dist/`.
+
+### Known gaps
+
+Recorded so they're decisions rather than discoveries:
+
+- **405 is never returned.** `PUT /pets` and `DELETE /pets` match no route, so they
+  fall through to `notFound` as a `404`. The correct answer for a path that exists
+  under other methods is `405` with an `Allow` header. Worth doing when a client cares.
+- **The repository does read-then-write.** `updatePet` and `removePet` each `findIndex`
+  and then mutate — two steps where SQL needs one `UPDATE … WHERE id = ?` reading the
+  affected-row count. Harmless against a module-level array with no concurrent writers;
+  a lost-update race against a real database. `findPetById` also hands back the stored
+  object by reference. All three are contained in `pets.repositories.ts`, and the
+  signatures (`Pet | undefined`, `boolean`) map onto a row count, so this is a known
+  migration task rather than a redesign.
 
 The services row is the one most likely to be added too early. NestJS generates a
 service per module because **dependency injection is how its controllers receive
@@ -509,7 +579,20 @@ run after the Zod conversion: treating a blank `?species=` as a value rather tha
 absent (which turns an empty filter box into an empty result), and moving the
 server-owned keys to the bottom of the schema (which silently changes which error
 message a client sees). Both had been untested since long before the conversion.
-A surviving mutation is a missing test, not a harmless one.
+
+A surviving mutation is usually a missing test — but check for an **equivalent
+mutant** first, one that changes no behaviour at all. Rewriting
+`nextId = pets.reduce(max…) + 1` as `pets.length + 1` looks like it would let ids be
+reused; on seed ids 1–3 both evaluate to `4`, and `nextId` is assigned once at module
+load, so nothing changes. The mutations that _do_ reuse ids — recomputing the id
+inside `addPet` from `pets.length` or `max(id) + 1` — are caught.
+
+**Never run two test processes at once.** `supertest` binds an ephemeral port per
+request, so two concurrent runs produce requests that land on each other's servers.
+The failures look like real bugs but are impossible states — an `expected 401 to be
+400` from an API with no auth, a `404` where the route exists. A different test fails
+each time. If the suite is flaky, check nothing else is running it before debugging
+the code.
 
 ### CI
 

@@ -25,7 +25,8 @@ Built with Express 5 and TypeScript.
 | List pets, with filters  | ✅ Available |
 | Get a pet by id          | ✅ Available |
 | Register a pet           | ✅ Available |
-| Update / remove a pet    | 🔜 Planned   |
+| Update / remove a pet    | ✅ Available |
+| Adopt / return a pet     | ✅ Available |
 | Users and authentication | 🔜 Planned   |
 | Adoption requests        | 🔜 Planned   |
 
@@ -89,9 +90,14 @@ npx vitest run src/modules/pets/pets.spec.ts            # one file
 npx vitest run src/modules/pets/pets.spec.ts -t "rejects id"  # one test by name
 ```
 
-Endpoints that write have their own spec file (`pets.post.spec.ts`). The demo data
-is module state, so a `POST` test would otherwise mutate the array the `GET` tests
-assert against; Vitest isolates module state per file, not per `describe`.
+Endpoints that write have their own spec file — `pets.post.spec.ts`,
+`pets.put.spec.ts`, `pets.delete.spec.ts`. The demo data is module state, so a write
+test would otherwise mutate the array the `GET` tests assert against; Vitest isolates
+module state per file, not per `describe`. Shared request bodies live in
+`pets.fixtures.ts`.
+
+Run the suite **one process at a time**: `supertest` binds an ephemeral port per
+request, so two concurrent runs cross-talk and fail random tests for no real reason.
 
 ---
 
@@ -176,6 +182,62 @@ The response body is the pet as stored — the same shape `GET /pets/:id` return
 so the server-assigned `id` and the normalized `intakeDate` come back without a
 second request. Validation reports the **first** problem it finds, not every
 problem.
+
+### `PUT /pets/:id`
+
+Replaces a pet. **The body is the pet** — every field you send becomes its new state,
+and every optional field you leave out is cleared. Same fields and same rules as
+`POST /pets`, with two differences:
+
+| Field          | Difference from create                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------- |
+| `intakeDate`   | **Required.** Create defaults it to now; doing that here would silently reset it on every edit. |
+| `adoptionDate` | **Writable.** Send a date to adopt; send `null` or omit it to return the pet to the shelter.    |
+
+`id` is still assigned by the shelter — it belongs in the URL, so sending it in the
+body is a `400`. Unknown fields are ignored, as on create.
+
+```bash
+# adopt a pet
+curl -X PUT http://localhost:8000/pets/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Bella","species":"Dog","breed":"Border Collie","age":3,
+       "intakeDate":"2024-06-15","adoptionDate":"2026-09-17",
+       "medicalRecord":{"vaccinations":["Rabies"],"weightKg":18.4,"microchipId":null},
+       "photo":"https://picsum.photos/id/237/200/300"}'
+
+# ...and return it: same body with adoptionDate null
+```
+
+| Status | When                                                      |
+| ------ | --------------------------------------------------------- |
+| `200`  | The replaced pet                                          |
+| `400`  | `id` is not a positive integer, or the body breaks a rule |
+| `404`  | No pet with that id                                       |
+
+The body is validated **before** the id is looked up, so a bad body on a URL that
+doesn't exist reports the body problem, not a `404`.
+
+Because a client normally loads a pet, edits it and sends it back, the round trip is
+`GET /pets/:id` → change what you want → `PUT`. Sending a field you didn't mean to
+change is harmless; _omitting_ one is not.
+
+### `DELETE /pets/:id`
+
+Removes a pet permanently.
+
+```bash
+curl -i -X DELETE http://localhost:8000/pets/1
+```
+
+| Status | When                           |
+| ------ | ------------------------------ |
+| `204`  | Removed. No response body.     |
+| `400`  | `id` is not a positive integer |
+| `404`  | No pet with that id            |
+
+Ids are **never reused**. Delete pet `4` and the next pet created is `5`, so a stored
+link can't quietly start pointing at a different animal.
 
 ### Other errors
 

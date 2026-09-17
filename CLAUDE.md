@@ -5,10 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 Express 5 + TypeScript REST API for an animal shelter: pets are registered and put up for
-adoption, users request to adopt, and the shelter tracks those requests. `GET /pets` (with
-filters), `GET /pets/:id` and `POST /pets` exist today; update/delete, users, auth and
-adoption requests are planned. Pets are **in-memory demo data** in
-`src/modules/pets/pets.repositories.ts` and reset on restart.
+adoption, users request to adopt, and the shelter tracks those requests. Full CRUD on
+`/pets` exists today — `GET /pets` (with filters), `GET /pets/:id`, `POST /pets`,
+`PUT /pets/:id`, `DELETE /pets/:id` — and a pet is adopted or returned by setting or
+clearing `adoptionDate` through PUT. Users, auth and adoption requests are planned.
+Pets are **in-memory demo data** in `src/modules/pets/pets.repositories.ts` and reset on
+restart.
 
 ## Commands
 
@@ -132,6 +134,13 @@ for it. Read it before adding a module or moving code. The load-bearing points:
   - `NewPet` stays hand-written in `pets.types.ts`; it is deliberately **not** derived with
     `z.output`. `parseNewPet`'s return type is what makes `tsc` check the schema against
     the entity.
+  - `replacePetSchema` is `newPetSchema.extend(...)` overriding two keys. **Neither
+    override is type-checked** — removing either compiles cleanly and silently breaks
+    PUT (resets `intakeDate`, or disables adoption). Tests are the only guard.
+- **Tests must not run concurrently.** `supertest` binds an ephemeral port per request, so
+  two simultaneous `vitest` processes cross-talk and fail random tests with impossible
+  results (a 401 from an API with no auth). Check nothing else is running the suite before
+  debugging a flaky failure.
 
 When endpoints, scripts or conventions change, update `README.md` and
 `docs/architecture.md` to match.

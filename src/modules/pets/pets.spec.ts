@@ -2,11 +2,9 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../app";
 import { loadConfig } from "../../config/env";
+import { ids } from "./pets.fixtures";
 
 const app = createApp(loadConfig({}));
-
-const ids = (body: Array<{ id: number }>): number[] =>
-  body.map((pet) => pet.id);
 
 describe("GET /pets", () => {
   it("returns every pet when no filter is given", async () => {

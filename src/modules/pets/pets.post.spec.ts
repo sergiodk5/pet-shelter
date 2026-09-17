@@ -2,25 +2,9 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../app";
 import { loadConfig } from "../../config/env";
+import { ids, validPetBody as validPet } from "./pets.fixtures";
 
 const app = createApp(loadConfig({}));
-
-/** Passes every rule - each rejection case below breaks exactly one thing. */
-const validPet = {
-  name: "Luna",
-  species: "Dog",
-  breed: "Beagle",
-  age: 2,
-  medicalRecord: {
-    vaccinations: ["Rabies"],
-    weightKg: 9.2,
-    microchipId: null,
-  },
-  photo: "https://picsum.photos/id/240/200/300",
-};
-
-const ids = (body: Array<{ id: number }>): number[] =>
-  body.map((pet) => pet.id);
 
 describe("POST /pets", () => {
   it("creates a pet and returns the stored record", async () => {

@@ -17,3 +17,5 @@ export type Pet = {
 };
 
 export type NewPet = Omit<Pet, "id" | "adoptionDate">;
+
+export type PetUpdate = Omit<Pet, "id">;

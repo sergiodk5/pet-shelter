@@ -1,7 +1,7 @@
 import type { Request } from "express";
 import { z } from "zod";
 import { BadRequestError } from "../../shared/errors/httpError";
-import type { NewPet } from "./pets.types";
+import type { NewPet, PetUpdate } from "./pets.types";
 
 const formatIssue = (issue: z.ZodError["issues"][number]): string => {
   if (issue.path.length === 0) {
@@ -16,6 +16,16 @@ const formatIssue = (issue: z.ZodError["issues"][number]): string => {
     .replace(/^\./, "");
 
   return `${path} ${issue.message}`;
+};
+
+const parseOrThrow = <T extends z.ZodType>(schema: T, input: unknown) => {
+  const result = schema.safeParse(input);
+
+  if (!result.success) {
+    throw new BadRequestError(formatIssue(result.error.issues[0]));
+  }
+
+  return result.data;
 };
 
 export type PetFilters = {
@@ -49,15 +59,8 @@ const petFiltersSchema = z.object({
   maxAge: queryParam(z.coerce.number({ error: "must be a number." })),
 });
 
-export const parseFilters = (query: Request["query"]): PetFilters => {
-  const result = petFiltersSchema.safeParse(query);
-
-  if (!result.success) {
-    throw new BadRequestError(formatIssue(result.error.issues[0]));
-  }
-
-  return result.data;
-};
+export const parseFilters = (query: Request["query"]): PetFilters =>
+  parseOrThrow(petFiltersSchema, query);
 
 const nonEmptyString = z
   .string({ error: "must be a non-empty string." })
@@ -67,6 +70,14 @@ const nonEmptyString = z
 const serverOwned = z
   .never({ error: "is assigned by the shelter." })
   .optional();
+
+/** A parseable date string, converted to the `Date` the repository stores. */
+const dateString = z
+  .string({ error: "must be a date string." })
+  .refine((value) => !Number.isNaN(new Date(value).getTime()), {
+    error: "must be a valid date.",
+  })
+  .transform((value) => new Date(value));
 
 const medicalRecordSchema = z.object(
   {
@@ -96,25 +107,24 @@ const newPetSchema = z.object(
     age: z
       .int({ error: "must be an integer of 0 or more." })
       .min(0, { error: "must be an integer of 0 or more." }),
-    intakeDate: z
-      .string({ error: "must be a date string." })
-      .refine((value) => !Number.isNaN(new Date(value).getTime()), {
-        error: "must be a valid date.",
-      })
-      .transform((value) => new Date(value))
-      .default(() => new Date()),
+    /** Absent means "arriving now". */
+    intakeDate: dateString.default(() => new Date()),
     medicalRecord: medicalRecordSchema,
     photo: nonEmptyString,
   },
   { error: "Request body must be a JSON object." },
 );
 
-export const parseNewPet = (body: unknown): NewPet => {
-  const result = newPetSchema.safeParse(body);
+const replacePetSchema = newPetSchema.extend({
+  intakeDate: dateString,
+  // A returned pet needs its adoption cleared. A form sends `adoptionDate: null`
+  // rather than dropping the key, so both null and absent mean "not adopted" —
+  // `null` is already how this API says "no value" (see `microchipId`).
+  adoptionDate: dateString.nullish().transform((value) => value ?? undefined),
+});
 
-  if (!result.success) {
-    throw new BadRequestError(formatIssue(result.error.issues[0]));
-  }
+export const parseNewPet = (body: unknown): NewPet =>
+  parseOrThrow(newPetSchema, body);
 
-  return result.data;
-};
+export const parseReplacementPet = (body: unknown): PetUpdate =>
+  parseOrThrow(replacePetSchema, body);

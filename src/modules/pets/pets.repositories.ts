@@ -1,4 +1,4 @@
-import type { NewPet, Pet } from "./pets.types";
+import type { NewPet, Pet, PetUpdate } from "./pets.types";
 
 export const pets: Pet[] = [
   {
@@ -58,4 +58,34 @@ export const addPet = (newPet: NewPet): Pet => {
   pets.push(pet);
 
   return pet;
+};
+
+export const findPetById = (id: number): Pet | undefined => {
+  return pets.find((pet: Pet): boolean => pet.id === id);
+};
+
+export const updatePet = (id: number, update: PetUpdate): Pet | undefined => {
+  const index = pets.findIndex((pet: Pet): boolean => pet.id === id);
+
+  if (index === -1) {
+    return undefined;
+  }
+
+  const pet: Pet = { id, ...update };
+
+  pets[index] = pet;
+
+  return pet;
+};
+
+export const removePet = (id: number): boolean => {
+  const index = pets.findIndex((pet: Pet): boolean => pet.id === id);
+
+  if (index === -1) {
+    return false;
+  }
+
+  pets.splice(index, 1);
+
+  return true;
 };

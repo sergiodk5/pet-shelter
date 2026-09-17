@@ -124,6 +124,19 @@ describe("POST /pets", () => {
     expect(res.status).toBe(201);
     expect(res.body.medicalRecord).not.toHaveProperty("colour");
   });
+
+  it("drops unknown top-level keys", async () => {
+    const res = await request(app)
+      .post("/pets")
+      .send({ ...validPet, colour: "brown" });
+
+    expect(res.status).toBe(201);
+    expect(res.body).not.toHaveProperty("colour");
+
+    const fetched = await request(app).get(`/pets/${res.body.id}`);
+
+    expect(fetched.body).not.toHaveProperty("colour");
+  });
 });
 
 const rejections: { label: string; body: object; message: string }[] = [
@@ -136,11 +149,6 @@ const rejections: { label: string; body: object; message: string }[] = [
     label: "a client-supplied adoptionDate",
     body: { ...validPet, adoptionDate: "2026-01-01" },
     message: "adoptionDate is assigned by the shelter.",
-  },
-  {
-    label: "an unknown field",
-    body: { ...validPet, colour: "brown" },
-    message: "Unknown field: colour.",
   },
   {
     label: "a missing name",
@@ -289,5 +297,14 @@ describe("POST /pets rejections", () => {
     const after = await request(app).get("/pets");
 
     expect(after.body).toHaveLength(before.body.length);
+  });
+
+  it("reports the server-owned field first when other fields are invalid too", async () => {
+    const res = await request(app)
+      .post("/pets")
+      .send({ ...validPet, id: 99, name: "" });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ message: "id is assigned by the shelter." });
   });
 });

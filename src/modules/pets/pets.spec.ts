@@ -45,6 +45,16 @@ describe("GET /pets", () => {
     expect(res.body).toEqual({ message });
   });
 
+  it.each(["species=", "adopted=", "minAge=", "maxAge="])(
+    "treats the blank filter ?%s as absent",
+    async (query) => {
+      const res = await request(app).get(`/pets?${query}`);
+
+      expect(res.status).toBe(200);
+      expect(ids(res.body)).toEqual([1, 2, 3]);
+    },
+  );
+
   it("derives adoption status from adoptionDate, not a stored flag", async () => {
     const res = await request(app).get("/pets");
 

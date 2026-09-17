@@ -1,14 +1,24 @@
+import type { Express } from "express";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
-import { createApp } from "../../app";
-import { loadConfig } from "../../config/env";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createTestApp } from "../../app.fixtures";
 import {
   ids,
   validPetBody,
   validReplacementBody as valid,
 } from "./pets.fixtures";
 
-const app = createApp(loadConfig({}));
+let app: Express;
+let close: () => Promise<void>;
+
+beforeAll(async () => {
+  const testApp = await createTestApp();
+
+  app = testApp.appWith();
+  close = testApp.close;
+});
+
+afterAll(() => close());
 
 /** A fresh pet per test, so nothing depends on which test ran first. */
 const givenAPet = async (): Promise<number> => {

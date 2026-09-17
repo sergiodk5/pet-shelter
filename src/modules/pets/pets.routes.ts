@@ -1,22 +1,20 @@
 import type { Router } from "express";
 import express from "express";
-import {
-  createPet,
-  deletePet,
-  getPetById,
-  getPets,
-  replacePet,
-} from "./pets.controllers";
+import type { PetsControllers } from "./pets.controllers";
 import { validateNumericId } from "./pets.middleware";
 
-export const petRouter: Router = express.Router();
+export const createPetRouter = (controllers: PetsControllers): Router => {
+  const petRouter = express.Router();
 
-petRouter.get("/", getPets);
+  petRouter.get("/", controllers.getPets);
 
-petRouter.post("/", createPet);
+  petRouter.post("/", controllers.createPet);
 
-petRouter.get("/:id", validateNumericId, getPetById);
+  petRouter.get("/:id", validateNumericId, controllers.getPetById);
 
-petRouter.put("/:id", validateNumericId, replacePet);
+  petRouter.put("/:id", validateNumericId, controllers.replacePet);
 
-petRouter.delete("/:id", validateNumericId, deletePet);
+  petRouter.delete("/:id", validateNumericId, controllers.deletePet);
+
+  return petRouter;
+};

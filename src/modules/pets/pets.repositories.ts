@@ -1,91 +1,111 @@
+import { and, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import type { Db } from "../../config/db";
+import { petsTable } from "./pets.table";
 import type { NewPet, Pet, PetUpdate } from "./pets.types";
+import type { PetFilters } from "./pets.validators";
 
-export const pets: Pet[] = [
-  {
-    id: 1,
-    name: "Bella",
-    species: "Dog",
-    breed: "Border Collie",
-    age: 3,
-    intakeDate: new Date("2024-06-15"),
-    medicalRecord: {
-      vaccinations: ["Rabies", "Distemper", "Parvovirus"],
-      weightKg: 18.4,
-      microchipId: null,
-    },
-    photo: "https://picsum.photos/id/237/200/300",
+type PetRow = typeof petsTable.$inferSelect;
+
+/**
+ * The table is flat; `Pet` nests `medicalRecord`. This is the only place that
+ * knows the difference.
+ *
+ * `adoptionDate` is spread conditionally on purpose: SQL says `null`, `Pet` says
+ * *absent*. Assigning `null` would make `adoptionDate !== undefined` true, so an
+ * available pet would report as adopted and would serialize as
+ * `"adoptionDate": null`.
+ */
+const toPet = (row: PetRow): Pet => ({
+  id: row.id,
+  name: row.name,
+  species: row.species,
+  breed: row.breed,
+  age: row.age,
+  intakeDate: row.intakeDate,
+  ...(row.adoptionDate !== null && { adoptionDate: row.adoptionDate }),
+  medicalRecord: {
+    vaccinations: row.vaccinations,
+    weightKg: row.weightKg,
+    microchipId: row.microchipId,
   },
-  {
-    id: 2,
-    name: "Milo",
-    species: "Cat",
-    breed: "Siamese",
-    age: 2,
-    intakeDate: new Date("2024-01-01"),
-    adoptionDate: new Date("2024-03-10"),
-    medicalRecord: {
-      vaccinations: ["Rabies", "Distemper", "Parvovirus"],
-      weightKg: 18.4,
-      microchipId: null,
-    },
-    photo: "https://picsum.photos/id/238/200/300",
+  photo: row.photo,
+});
+
+/** `NewPet` is assignable to `PetUpdate`, so one direction covers both writes. */
+const toRow = (pet: PetUpdate) => ({
+  name: pet.name,
+  species: pet.species,
+  breed: pet.breed,
+  age: pet.age,
+  intakeDate: pet.intakeDate,
+  adoptionDate: pet.adoptionDate ?? null,
+  vaccinations: pet.medicalRecord.vaccinations,
+  weightKg: pet.medicalRecord.weightKg,
+  microchipId: pet.medicalRecord.microchipId,
+  photo: pet.photo,
+});
+
+export const createPetsRepository = (db: Db) => ({
+  findPets: async (filters: PetFilters): Promise<Pet[]> => {
+    const conditions = [
+      filters.species === undefined
+        ? undefined
+        : sql`lower(${petsTable.species}) = ${filters.species}`,
+      filters.adopted === undefined
+        ? undefined
+        : filters.adopted
+          ? isNotNull(petsTable.adoptionDate)
+          : isNull(petsTable.adoptionDate),
+      filters.minAge === undefined
+        ? undefined
+        : gte(petsTable.age, filters.minAge),
+      filters.maxAge === undefined
+        ? undefined
+        : lte(petsTable.age, filters.maxAge),
+    ].filter((condition) => condition !== undefined);
+
+    const rows = await db
+      .select()
+      .from(petsTable)
+      .where(and(...conditions))
+      .orderBy(petsTable.id);
+
+    return rows.map(toPet);
   },
-  {
-    id: 3,
-    name: "Blacky",
-    species: "Cat",
-    breed: "Street",
-    age: 6,
-    intakeDate: new Date("2020-05-15"),
-    adoptionDate: new Date("2021-02-20"),
-    medicalRecord: {
-      vaccinations: ["Rabies", "Distemper", "Parvovirus"],
-      weightKg: 18.4,
-      microchipId: null,
-    },
-    photo: "https://picsum.photos/id/239/200/300",
+
+  findPetById: async (id: number): Promise<Pet | undefined> => {
+    const rows = await db.select().from(petsTable).where(eq(petsTable.id, id));
+
+    return rows[0] === undefined ? undefined : toPet(rows[0]);
   },
-];
 
-// The next id to hand out, seeded past the demo data. A counter rather than
-// `max(id) + 1` so an id is never reused after a pet is removed - the same
-// guarantee a database's auto-increment gives you.
-let nextId = pets.reduce((max, pet) => Math.max(max, pet.id), 0) + 1;
+  addPet: async (newPet: NewPet): Promise<Pet> => {
+    const rows = await db.insert(petsTable).values(toRow(newPet)).returning();
 
-export const addPet = (newPet: NewPet): Pet => {
-  const pet: Pet = { id: nextId++, ...newPet };
+    return toPet(rows[0]!);
+  },
 
-  pets.push(pet);
+  updatePet: async (
+    id: number,
+    update: PetUpdate,
+  ): Promise<Pet | undefined> => {
+    const rows = await db
+      .update(petsTable)
+      .set(toRow(update))
+      .where(eq(petsTable.id, id))
+      .returning();
 
-  return pet;
-};
+    return rows[0] === undefined ? undefined : toPet(rows[0]);
+  },
 
-export const findPetById = (id: number): Pet | undefined => {
-  return pets.find((pet: Pet): boolean => pet.id === id);
-};
+  removePet: async (id: number): Promise<boolean> => {
+    const rows = await db
+      .delete(petsTable)
+      .where(eq(petsTable.id, id))
+      .returning();
 
-export const updatePet = (id: number, update: PetUpdate): Pet | undefined => {
-  const index = pets.findIndex((pet: Pet): boolean => pet.id === id);
+    return rows.length > 0;
+  },
+});
 
-  if (index === -1) {
-    return undefined;
-  }
-
-  const pet: Pet = { id, ...update };
-
-  pets[index] = pet;
-
-  return pet;
-};
-
-export const removePet = (id: number): boolean => {
-  const index = pets.findIndex((pet: Pet): boolean => pet.id === id);
-
-  if (index === -1) {
-    return false;
-  }
-
-  pets.splice(index, 1);
-
-  return true;
-};
+export type PetsRepository = ReturnType<typeof createPetsRepository>;

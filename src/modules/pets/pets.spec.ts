@@ -1,10 +1,20 @@
+import type { Express } from "express";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
-import { createApp } from "../../app";
-import { loadConfig } from "../../config/env";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createTestApp } from "../../app.fixtures";
 import { ids } from "./pets.fixtures";
 
-const app = createApp(loadConfig({}));
+let app: Express;
+let close: () => Promise<void>;
+
+beforeAll(async () => {
+  const testApp = await createTestApp();
+
+  app = testApp.appWith();
+  close = testApp.close;
+});
+
+afterAll(() => close());
 
 describe("GET /pets", () => {
   it("returns every pet when no filter is given", async () => {
@@ -52,6 +62,22 @@ describe("GET /pets", () => {
       expect(ids(res.body)).toEqual([1, 2, 3]);
     },
   );
+
+  it("returns pets in id order even after one has been updated", async () => {
+    // Postgres rewrites an updated row at the end of the heap, so a SELECT
+    // without ORDER BY returns 2,3,1 here. Writing the pet back unchanged keeps
+    // every other assertion in this file valid.
+    const bella = await request(app).get("/pets/1");
+    const { id: _id, ...unchanged } = bella.body;
+
+    const put = await request(app).put("/pets/1").send(unchanged);
+
+    expect(put.status).toBe(200);
+
+    const res = await request(app).get("/pets");
+
+    expect(ids(res.body)).toEqual([1, 2, 3]);
+  });
 
   it("derives adoption status from adoptionDate, not a stored flag", async () => {
     const res = await request(app).get("/pets");

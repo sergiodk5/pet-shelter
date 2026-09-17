@@ -1,13 +1,26 @@
+import type { Express } from "express";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
-import { createApp } from "./app";
-import { loadConfig } from "./config/env";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { TestApp } from "./app.fixtures";
+import { createTestApp } from "./app.fixtures";
 
-/** Builds an app the way server.ts does, but with the given CORS_ORIGINS. */
-const appWith = (corsOrigins = ""): ReturnType<typeof createApp> =>
-  createApp(loadConfig({ CORS_ORIGINS: corsOrigins }));
+const allowed = "https://shelter.example";
+const alsoAllowed = "http://localhost:5173";
 
-const app = appWith();
+let testApp: TestApp;
+/** No CORS_ORIGINS - the deny-by-default app. */
+let app: Express;
+/** Both origins above allowed. Shares one database with `app`. */
+let configured: Express;
+
+beforeAll(async () => {
+  testApp = await createTestApp();
+
+  app = testApp.appWith();
+  configured = testApp.appWith({ CORS_ORIGINS: `${allowed},${alsoAllowed}` });
+});
+
+afterAll(() => testApp.close());
 
 describe("security headers", () => {
   it("does not advertise Express", async () => {
@@ -30,10 +43,6 @@ describe("security headers", () => {
 });
 
 describe("CORS", () => {
-  const allowed = "https://shelter.example";
-  const alsoAllowed = "http://localhost:5173";
-  const configured = appWith(`${allowed},${alsoAllowed}`);
-
   it.each([allowed, alsoAllowed])(
     "allows a listed origin (%s)",
     async (origin) => {

@@ -2,8 +2,11 @@ import cors from "cors";
 import type { Express } from "express";
 import express from "express";
 import helmet from "helmet";
+import type { Db } from "./config/db";
 import type { AppConfig } from "./config/env";
-import { petRouter } from "./modules/pets/pets.routes";
+import { createPetsControllers } from "./modules/pets/pets.controllers";
+import { createPetsRepository } from "./modules/pets/pets.repositories";
+import { createPetRouter } from "./modules/pets/pets.routes";
 import { errorHandler } from "./shared/middleware/errorHandler";
 import { notFound } from "./shared/middleware/notFound";
 
@@ -11,7 +14,7 @@ import { notFound } from "./shared/middleware/notFound";
  * Builds the Express app without listening, so tests can drive it with any
  * configuration and without binding a port. `server.ts` owns `listen()`.
  */
-export const createApp = (config: AppConfig): Express => {
+export const createApp = (config: AppConfig, db: Db): Express => {
   const app = express();
 
   app.use(helmet());
@@ -28,7 +31,10 @@ export const createApp = (config: AppConfig): Express => {
 
   app.use(express.json());
 
-  app.use("/pets", petRouter);
+  app.use(
+    "/pets",
+    createPetRouter(createPetsControllers(createPetsRepository(db))),
+  );
 
   // Terminal handlers — order matters: 404 first, error handler last.
   app.use(notFound);

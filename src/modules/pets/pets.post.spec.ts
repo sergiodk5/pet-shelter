@@ -2,7 +2,11 @@ import type { Express } from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestApp } from "../../app.fixtures";
-import { ids, validPetBody as validPet } from "./pets.fixtures";
+import {
+  ids,
+  nextMicrochipId,
+  validPetBody as validPet,
+} from "./pets.fixtures";
 
 let app: Express;
 let close: () => Promise<void>;
@@ -86,16 +90,53 @@ describe("POST /pets", () => {
     expect(res.body.name).toBe("Luna");
   });
 
+  it("stores a microchip id at the top level, not under medicalRecord", async () => {
+    const microchipId = nextMicrochipId();
+
+    const res = await request(app)
+      .post("/pets")
+      .send({ ...validPet, microchipId });
+
+    expect(res.status).toBe(201);
+    expect(res.body.microchipId).toBe(microchipId);
+    expect(res.body.medicalRecord).not.toHaveProperty("microchipId");
+  });
+
+  it("rejects a microchip id that is already registered", async () => {
+    const microchipId = nextMicrochipId();
+    await request(app)
+      .post("/pets")
+      .send({ ...validPet, microchipId });
+
+    const res = await request(app)
+      .post("/pets")
+      .send({ ...validPet, microchipId });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      message: "microchipId is already registered.",
+    });
+  });
+
+  it("allows any number of pets without a microchip", async () => {
+    const first = await request(app)
+      .post("/pets")
+      .send({ ...validPet, microchipId: null });
+    const second = await request(app)
+      .post("/pets")
+      .send({ ...validPet, microchipId: null });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+  });
+
   it("defaults microchipId to null when omitted", async () => {
     const res = await request(app)
       .post("/pets")
-      .send({
-        ...validPet,
-        medicalRecord: { vaccinations: [], weightKg: 9.2 },
-      });
+      .send({ ...validPet, microchipId: undefined });
 
     expect(res.status).toBe(201);
-    expect(res.body.medicalRecord.microchipId).toBeNull();
+    expect(res.body.microchipId).toBeNull();
   });
 
   it("accepts an age of 0", async () => {
@@ -225,11 +266,8 @@ const rejections: { label: string; body: object; message: string }[] = [
   },
   {
     label: "a numeric microchipId",
-    body: {
-      ...validPet,
-      medicalRecord: { ...validPet.medicalRecord, microchipId: 123 },
-    },
-    message: "medicalRecord.microchipId must be a string or null.",
+    body: { ...validPet, microchipId: 123 },
+    message: "microchipId must be a string or null.",
   },
   {
     label: "a missing photo",

@@ -1,7 +1,11 @@
+/**
+ * The medical facts that become a history: weight is a point in a time series,
+ * vaccinations gain dates and boosters. `microchipId` is deliberately *not*
+ * here - it identifies the pet and never changes.
+ */
 export type MedicalRecord = {
   vaccinations: string[];
   weightKg: number;
-  microchipId: null | string;
 };
 
 export type Pet = {
@@ -12,6 +16,7 @@ export type Pet = {
   age: number;
   intakeDate: Date;
   adoptionDate?: Date;
+  microchipId: null | string;
   medicalRecord: MedicalRecord;
   photo: string;
 };

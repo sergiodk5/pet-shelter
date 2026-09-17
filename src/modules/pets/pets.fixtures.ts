@@ -7,10 +7,10 @@ export const validPetBody = {
   species: "Dog",
   breed: "Beagle",
   age: 2,
+  microchipId: null,
   medicalRecord: {
     vaccinations: ["Rabies"],
     weightKg: 9.2,
-    microchipId: null,
   },
   photo: "https://picsum.photos/id/240/200/300",
 };

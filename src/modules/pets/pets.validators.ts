@@ -87,9 +87,6 @@ const medicalRecordSchema = z.object(
     weightKg: z
       .number({ error: "must be a number greater than 0." })
       .positive({ error: "must be a number greater than 0." }),
-    microchipId: z
-      .union([z.string(), z.null()], { error: "must be a string or null." })
-      .default(null),
   },
   { error: "must be a JSON object." },
 );
@@ -111,6 +108,11 @@ const newPetSchema = z.object(
     intakeDate: dateString.default(() => new Date()),
     medicalRecord: medicalRecordSchema,
     photo: nonEmptyString,
+    // Last of the client-supplied fields: shape order decides which error wins,
+    // so adding one here leaves every existing precedence untouched.
+    microchipId: z
+      .union([z.string(), z.null()], { error: "must be a string or null." })
+      .default(null),
   },
   { error: "Request body must be a JSON object." },
 );

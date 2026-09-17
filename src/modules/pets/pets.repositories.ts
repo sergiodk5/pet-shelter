@@ -1,10 +1,35 @@
 import { and, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { ConflictError } from "../../shared/errors/httpError";
 import type { Db } from "../../config/db";
 import { petsTable } from "./pets.table";
 import type { NewPet, Pet, PetUpdate } from "./pets.types";
 import type { PetFilters } from "./pets.validators";
 
 type PetRow = typeof petsTable.$inferSelect;
+
+/** Postgres SQLSTATE for a unique constraint breach. */
+const UNIQUE_VIOLATION = "23505";
+
+/**
+ * A constraint breach arrives as an opaque driver error, which `errorHandler`
+ * would report as a 500 - our fault, for what is a client mistake. Translate the
+ * one we can explain and let anything else stay a 500.
+ *
+ * Duck-typed on `code` rather than `instanceof`: both drivers surface the
+ * Postgres wire-protocol fields, and pglite's error class name is minified.
+ */
+const rethrow = (error: unknown): never => {
+  // Drizzle wraps driver errors in a DrizzleQueryError and puts the original in
+  // `cause`, so the Postgres fields sit one level down.
+  const { code, constraint } = ((error as { cause?: unknown }).cause ??
+    error) as { code?: unknown; constraint?: unknown };
+
+  if (code === UNIQUE_VIOLATION && constraint === "pets_microchip_id_unique") {
+    throw new ConflictError("microchipId is already registered.");
+  }
+
+  throw error;
+};
 
 /**
  * The table is flat; `Pet` nests `medicalRecord`. This is the only place that
@@ -23,10 +48,10 @@ const toPet = (row: PetRow): Pet => ({
   age: row.age,
   intakeDate: row.intakeDate,
   ...(row.adoptionDate !== null && { adoptionDate: row.adoptionDate }),
+  microchipId: row.microchipId,
   medicalRecord: {
     vaccinations: row.vaccinations,
     weightKg: row.weightKg,
-    microchipId: row.microchipId,
   },
   photo: row.photo,
 });
@@ -41,7 +66,7 @@ const toRow = (pet: PetUpdate) => ({
   adoptionDate: pet.adoptionDate ?? null,
   vaccinations: pet.medicalRecord.vaccinations,
   weightKg: pet.medicalRecord.weightKg,
-  microchipId: pet.medicalRecord.microchipId,
+  microchipId: pet.microchipId,
   photo: pet.photo,
 });
 
@@ -80,22 +105,30 @@ export const createPetsRepository = (db: Db) => ({
   },
 
   addPet: async (newPet: NewPet): Promise<Pet> => {
-    const rows = await db.insert(petsTable).values(toRow(newPet)).returning();
+    try {
+      const rows = await db.insert(petsTable).values(toRow(newPet)).returning();
 
-    return toPet(rows[0]!);
+      return toPet(rows[0]!);
+    } catch (error) {
+      return rethrow(error);
+    }
   },
 
   updatePet: async (
     id: number,
     update: PetUpdate,
   ): Promise<Pet | undefined> => {
-    const rows = await db
-      .update(petsTable)
-      .set(toRow(update))
-      .where(eq(petsTable.id, id))
-      .returning();
+    try {
+      const rows = await db
+        .update(petsTable)
+        .set(toRow(update))
+        .where(eq(petsTable.id, id))
+        .returning();
 
-    return rows[0] === undefined ? undefined : toPet(rows[0]);
+      return rows[0] === undefined ? undefined : toPet(rows[0]);
+    } catch (error) {
+      return rethrow(error);
+    }
   },
 
   removePet: async (id: number): Promise<boolean> => {

@@ -30,3 +30,10 @@ export class NotFoundError extends HttpError {
     this.name = "NotFoundError";
   }
 }
+
+export class ConflictError extends HttpError {
+  constructor(message: string) {
+    super(409, message);
+    this.name = "ConflictError";
+  }
+}

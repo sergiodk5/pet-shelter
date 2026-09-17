@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestApp } from "../../app.fixtures";
 import {
   ids,
+  nextMicrochipId,
   validPetBody,
   validReplacementBody as valid,
 } from "./pets.fixtures";
@@ -43,6 +44,7 @@ describe("PUT /pets/:id", () => {
       breed: valid.breed,
       age: 7,
       intakeDate: "2024-06-15T00:00:00.000Z",
+      microchipId: valid.microchipId,
       medicalRecord: valid.medicalRecord,
       photo: valid.photo,
     });
@@ -105,6 +107,38 @@ describe("PUT /pets/:id", () => {
       expect(ids(available.body)).toContain(id);
     },
   );
+
+  it("rejects a microchip id that belongs to another pet", async () => {
+    const microchipId = nextMicrochipId();
+    await request(app)
+      .post("/pets")
+      .send({ ...validPetBody, microchipId });
+    const id = await givenAPet();
+
+    const res = await request(app)
+      .put(`/pets/${id}`)
+      .send({ ...valid, microchipId });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      message: "microchipId is already registered.",
+    });
+  });
+
+  it("lets a pet keep its own microchip id", async () => {
+    const microchipId = nextMicrochipId();
+    const created = await request(app)
+      .post("/pets")
+      .send({ ...validPetBody, microchipId });
+
+    const res = await request(app)
+      .put(`/pets/${created.body.id}`)
+      .send({ ...valid, microchipId, name: "Renamed" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.microchipId).toBe(microchipId);
+    expect(res.body.name).toBe("Renamed");
+  });
 
   it("trims surrounding whitespace", async () => {
     const id = await givenAPet();

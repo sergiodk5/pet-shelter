@@ -32,21 +32,26 @@
   },
   "dependencies": {
     "cors": "^2.8.6",
+    "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
+    "pg": "^8.23.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
     "@commitlint/config-conventional": "^21.2.2",
+    "@electric-sql/pglite": "^0.5.8",
     "@tsconfig/node24": "^24.0.5",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.5.1",
+    "@types/pg": "^8.23.1",
     "@types/supertest": "^7.2.1",
     "@vitest/coverage-v8": "^5.0.1",
     "commitizen": "^4.3.2",
     "cz-conventional-changelog": "^3.3.0",
+    "drizzle-kit": "^0.31.10",
     "husky": "^9.1.7",
     "lint-staged": "^17.5.1",
     "nodemon": "^3.1.14",
@@ -58,6 +63,9 @@
     "vitest": "^5.0.1"
   },
   "allowScripts": {
-    "fsevents@2.3.3": true
+    "fsevents@2.3.3": true,
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "./env";
+import { loadConfig, loadDatabaseUrl } from "./env";
 
 describe("loadConfig", () => {
   it("falls back to defaults when nothing is set", () => {
@@ -53,4 +53,19 @@ describe("loadConfig", () => {
       corsOrigins: expect.any(Array),
     });
   });
+});
+
+describe("loadDatabaseUrl", () => {
+  it("returns the configured URL", () => {
+    expect(
+      loadDatabaseUrl({ DATABASE_URL: "postgresql://u:p@localhost:5432/db" }),
+    ).toBe("postgresql://u:p@localhost:5432/db");
+  });
+
+  it.each([{}, { DATABASE_URL: "" }, { DATABASE_URL: "   " }])(
+    "throws when DATABASE_URL is missing or blank (%j)",
+    (env) => {
+      expect(() => loadDatabaseUrl(env)).toThrow("DATABASE_URL is required.");
+    },
+  );
 });

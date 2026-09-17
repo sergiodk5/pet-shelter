@@ -41,3 +41,21 @@ export const loadConfig = (
   nodeEnv: env.NODE_ENV?.trim() || DEFAULT_NODE_ENV,
   corsOrigins: parseCorsOrigins(env.CORS_ORIGINS),
 });
+
+/**
+ * The database URL, needed only by whoever opens the connection: `server.ts` and
+ * `drizzle.config.ts`. Deliberately **not** part of `AppConfig` — the app is handed
+ * a database rather than a URL, so a spec never needs one and `loadConfig({})`
+ * keeps working.
+ */
+export const loadDatabaseUrl = (
+  env: NodeJS.ProcessEnv = process.env,
+): string => {
+  const url = env.DATABASE_URL?.trim();
+
+  if (!url) {
+    throw new Error("DATABASE_URL is required.");
+  }
+
+  return url;
+};

@@ -155,7 +155,9 @@ Registers a pet. Send `Content-Type: application/json`.
 | `medicalRecord.microchipId`  | string \| `null` | no       | Defaults to `null`                                              |
 
 `id` is assigned by the shelter and `adoptionDate` is set when a pet is adopted —
-sending either is a `400`, as is any field not listed above.
+sending either is a `400`. Any **other** field not listed above is ignored: it's
+dropped from the request and never stored, and the response tells you what was
+actually saved.
 
 ```bash
 curl -i -X POST http://localhost:8000/pets \

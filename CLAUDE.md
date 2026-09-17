@@ -78,7 +78,9 @@ for it. Read it before adding a module or moving code. The load-bearing points:
 - **Configuration**: `src/config/env.ts` exports `loadConfig(env = process.env)`, which
   validates `PORT`, `NODE_ENV` and `CORS_ORIGINS` and **throws at startup** on bad input.
   `server.ts` calls it. `.env` is loaded by Node's `--env-file-if-exists` flag, not dotenv.
-  Validation is hand-rolled to avoid a dependency; revisit when Zod arrives.
+  Its validation is still hand-rolled. Zod has since landed for request bodies, so
+  converting `loadConfig` is now a live option — but it runs once at boot, not per
+  request, and it isn't causing problems. Don't convert it unprompted.
 - **Feature modules**: each resource lives in `src/modules/<resource>/` as
   `<resource>.<role>.ts`, with the role **plural** (`pets.controllers.ts`,
   `pets.routes.ts`). Cross-cutting code lives in `src/shared/`. `app.ts` only mounts a
@@ -119,9 +121,17 @@ for it. Read it before adding a module or moving code. The load-bearing points:
   **Endpoints that write get their own spec file** (`pets.post.spec.ts`): the repository is
   module state, and vitest isolates it per file, not per `describe`. Assert membership with
   `toContain`, never an exact array.
-- Validation is hand-rolled on purpose. `POST /pets` shipped that way deliberately, to make
-  the cost concrete before adding Zod; the user will say when Zod arrives — don't propose
-  it unprompted. See `docs/architecture.md` §2.5 for the accepted limitations.
+- **Validation is Zod 4** (`pets.validators.ts`). Read `docs/architecture.md` §2.5 before
+  touching a schema — the rules there are not obvious from the code:
+  - Each rule's `error:` holds only the **predicate** (`"must be a non-empty string."`);
+    `formatIssue` prepends the field path from `issue.path`. Don't write full sentences.
+  - `z.object()` **strips** unknown keys on purpose. `id` and `adoptionDate` are declared
+    as `z.never().optional()` so they're rejected instead of silently dropped.
+  - **Shape order decides which error wins** (we throw on `issues[0]`), so `id` and
+    `adoptionDate` are declared first. Don't reorder the shape.
+  - `NewPet` stays hand-written in `pets.types.ts`; it is deliberately **not** derived with
+    `z.output`. `parseNewPet`'s return type is what makes `tsc` check the schema against
+    the entity.
 
 When endpoints, scripts or conventions change, update `README.md` and
 `docs/architecture.md` to match.

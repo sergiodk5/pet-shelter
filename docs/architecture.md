@@ -180,32 +180,90 @@ is no call stack to throw into.
 Status codes in use: `200` ok · `201` created · `400` bad input · `404` not found ·
 `413` body too large · `500` unexpected.
 
-### 2.5 Validation
+### 2.5 Validation — Zod
 
-Hand-rolled for now, deliberately. The threshold to adopt Zod is **create/update**:
+**Zod 4.** Both validators in `pets.validators.ts` are schemas; `parseNewPet` and
+`parseFilters` are thin wrappers that `safeParse` and throw `BadRequestError` on the
+first issue.
 
-- `Pet` is 9 top-level fields + 3 nested, with dates and a nullable string —
-  roughly 70–90 lines of hand-written checks.
-- `update` is _the same rules, optional_. Hand-rolled, that's either duplication or
-  bespoke partial-application machinery. With a schema it's `.partial()`.
-- `z.infer` derives the type _from_ the validator, so the two can't drift — which is
-  exactly the failure that produced a `species.toLowerCase is not a function` crash
-  when a hand-written type promised something nothing enforced.
+`POST /pets` shipped **hand-rolled first**, on purpose, so the cost of not having a
+schema library was concrete before we paid for one. The conversion then deleted 147
+lines and added 95 — net −52 — and removed six helpers (`isRecord`,
+`requireNonEmptyString`, `requireNonNegativeInteger`, `requirePositiveNumber`,
+`parseIntakeDate`, `parseMedicalRecord`) that a schema gives away for free. Worth the
+detour: the hand-rolled version is what made the rules below obvious.
 
-`POST /pets` landed hand-rolled on purpose, to make the cost concrete before
-reaching for the dependency. What it cost: `pets.validators.ts` is ~170 lines, of
-which six helpers (`requireNonEmptyString`, `requireNonNegativeInteger`,
-`requirePositiveNumber`, `parseIntakeDate`, `parseMedicalRecord`, `isRecord`) are
-things a schema library gives away. Two known limitations, accepted for now:
+#### Messages are ours, not Zod's
 
-- **First failure wins.** One message per request, not a list of everything wrong.
-- **Unknown keys nested inside `medicalRecord` are dropped, not rejected**, while
-  unknown keys at the top level are a 400. Zod's `.strict()` would make both a 400.
+**Every error message survived the conversion byte-for-byte**, and 88 of 89 tests
+passed unedited through it. That was the point — a rewrite that changes both the code
+and the tests proves nothing (same discipline as §2.4's refactor).
 
-One thing hand-rolling made visible, worth keeping when Zod arrives: the request
-body shape is **not** `NewPet`. On the wire `intakeDate` is an optional string; in
-`NewPet` it's a required `Date`. `parseNewPet` is the conversion between them —
-which is exactly what `z.input` vs `z.output` models.
+The mechanism matters. Don't write full sentences in `error:`, because one message
+carries a computed index:
+
+```
+medicalRecord.vaccinations[1] must be a non-empty string.
+```
+
+Zod puts that index in the issue's **`path`**, not its message. So each rule's
+`error` holds only the **predicate half** (`"must be a non-empty string."`), and
+`formatIssue` renders the path and prepends it — numbers become `[1]`, strings become
+`.name`. An empty path means the failure is at the root, and its message is used
+as-is. Adding a field costs a predicate; the path comes free, and the style can't
+drift.
+
+#### Unknown keys are stripped; server-owned keys are rejected
+
+`z.object()` strips by default, and that's deliberate — it matches NestJS's
+`whitelist: true` and ~96% of n8n's 308 DTOs, and it lets a client GET a pet, edit it
+and POST it back without a 400.
+
+`id` and `adoptionDate` are the exception: a client sending those is trying to set
+something it doesn't own, and silently dropping them would leave it believing its pet
+has id `99` when it has id `4`. They're **declared** in the shape as
+`z.never().optional()` — present fails, absent passes. Declaring them is what makes
+them checked at all; an undeclared key would be stripped before anything could object.
+
+> **Declaration order is load-bearing.** Zod collects every issue and we take
+> `issues[0]`, so shape order decides which message wins. `id` and `adoptionDate` are
+> declared **first** so they beat an unrelated field error. A test covers this (it's
+> the one test that deliberately breaks two things at once) — reordering the shape
+> alphabetically would otherwise pass 93 of 94 tests.
+
+**First failure wins** — one message per request, not a list. Not a limitation of
+hand-rolling, as this section used to claim: n8n returns `error.errors[0]` with Zod's
+full array available. It's a choice, and it's the common one.
+
+#### The entity is the source of truth, not the schema
+
+`NewPet` stays `Omit<Pet, "id" | "adoptionDate">`, hand-written in `pets.types.ts`.
+It is **not** derived with `z.output`, and that's deliberate:
+
+- The check already exists. `parseNewPet` declares `: NewPet`, so `return result.data`
+  makes `tsc` verify the schema's output against the entity on every build. Drop
+  `photo` from the schema, or type `age` as a string, or forget the `intakeDate`
+  transform, and the build fails — verified by mutation.
+- Deriving would **invert the direction**. `Pet` is the storage shape; it shouldn't be
+  dictated by whatever an HTTP body happens to look like. It would also force `NewPet`
+  out of `pets.types.ts` (circular import) and need `Omit<…>` anyway to hide the
+  `never` keys.
+
+The older worry here — _"a hand-written type promises something nothing enforces"_ —
+doesn't apply, because something does enforce it.
+
+Still true and worth remembering: the wire shape is **not** `NewPet`. On the wire
+`intakeDate` is an optional string; in `NewPet` it's a required `Date`. The schema's
+`.refine().transform().default()` pipe is that conversion, and it's what `z.input` vs
+`z.output` models.
+
+#### Query params need a wrapper
+
+Query strings aren't JSON: `?k=v` is a string, `?k=a&k=b` is an array, and `?k=` is
+present-but-empty. Those are transport quirks, not domain rules, so `queryParam()`
+handles them once — last value wins, blank counts as absent — and each filter states
+only its own rule. `?species=` returning every pet rather than none is tested; it used
+to be untested behaviour that a one-character change could invert.
 
 ### 2.6 Configuration is injected, not imported
 
@@ -445,6 +503,13 @@ go red, revert. Deleting `errorHandler`'s 4th parameter, ignoring `err.status` o
 hardcoding `expose = false` each fail 33–40 tests — which is both the proof the
 suite works and a reminder that `errorHandler.ts` is now the highest-consequence
 file in the repo.
+
+It also finds behaviour nothing was testing. Two mutations **survived** a full green
+run after the Zod conversion: treating a blank `?species=` as a value rather than as
+absent (which turns an empty filter box into an empty result), and moving the
+server-owned keys to the bottom of the schema (which silently changes which error
+message a client sees). Both had been untested since long before the conversion.
+A surviving mutation is a missing test, not a harmless one.
 
 ### CI
 

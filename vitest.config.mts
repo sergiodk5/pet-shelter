@@ -16,6 +16,12 @@ export default defineConfig({
         // split exists to avoid. Revisit if it ever grows real logic — graceful
         // shutdown, signal handling — since that logic would then go unmeasured.
         "src/server.ts",
+        // Type-only modules compile to an empty file, so there is nothing to
+        // measure. v8 records 0 of 0, which the json reporter renders as 100%
+        // and the HTML reporter as 0% — noise either way. Excluding them assumes
+        // `*.types.ts` really does hold only types (§2.3); put runtime code
+        // somewhere else, or it goes unmeasured.
+        "src/**/*.types.ts",
       ],
     },
   },

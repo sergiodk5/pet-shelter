@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Server } from "node:http";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestApp } from "../../app.fixtures";
@@ -8,13 +8,13 @@ import {
   validPetBody as validPet,
 } from "./pets.fixtures";
 
-let app: Express;
+let server: Server;
 let close: () => Promise<void>;
 
 beforeAll(async () => {
   const testApp = await createTestApp();
 
-  app = testApp.appWith();
+  server = await testApp.serverWith();
   close = testApp.close;
 });
 
@@ -22,7 +22,7 @@ afterAll(() => close());
 
 describe("POST /pets", () => {
   it("creates a pet and returns the stored record", async () => {
-    const res = await request(app).post("/pets").send(validPet);
+    const res = await request(server).post("/pets").send(validPet);
 
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject(validPet);
@@ -30,36 +30,36 @@ describe("POST /pets", () => {
   });
 
   it("points Location at the new pet", async () => {
-    const res = await request(app).post("/pets").send(validPet);
+    const res = await request(server).post("/pets").send(validPet);
 
     expect(res.headers.location).toBe(`/pets/${res.body.id}`);
   });
 
   it("assigns a distinct id to each pet", async () => {
-    const first = await request(app).post("/pets").send(validPet);
-    const second = await request(app).post("/pets").send(validPet);
+    const first = await request(server).post("/pets").send(validPet);
+    const second = await request(server).post("/pets").send(validPet);
 
     expect(second.body.id).not.toBe(first.body.id);
   });
 
   it("stores the pet so it can be fetched afterwards", async () => {
-    const created = await request(app).post("/pets").send(validPet);
-    const fetched = await request(app).get(`/pets/${created.body.id}`);
+    const created = await request(server).post("/pets").send(validPet);
+    const fetched = await request(server).get(`/pets/${created.body.id}`);
 
     expect(fetched.status).toBe(200);
     expect(fetched.body).toEqual(created.body);
   });
 
   it("includes the new pet in the collection", async () => {
-    const created = await request(app).post("/pets").send(validPet);
-    const all = await request(app).get("/pets");
+    const created = await request(server).post("/pets").send(validPet);
+    const all = await request(server).get("/pets");
 
     expect(ids(all.body)).toContain(created.body.id);
   });
 
   it("creates the pet as available for adoption", async () => {
-    const created = await request(app).post("/pets").send(validPet);
-    const available = await request(app).get(`/pets?adopted=false`);
+    const created = await request(server).post("/pets").send(validPet);
+    const available = await request(server).get(`/pets?adopted=false`);
 
     expect(created.body).not.toHaveProperty("adoptionDate");
     expect(ids(available.body)).toContain(created.body.id);
@@ -67,7 +67,7 @@ describe("POST /pets", () => {
 
   it("defaults intakeDate to the moment of intake", async () => {
     const before = Date.now();
-    const res = await request(app).post("/pets").send(validPet);
+    const res = await request(server).post("/pets").send(validPet);
     const intake = Date.parse(res.body.intakeDate);
 
     expect(intake).toBeGreaterThanOrEqual(before);
@@ -75,7 +75,7 @@ describe("POST /pets", () => {
   });
 
   it("keeps an explicitly supplied intakeDate", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .send({ ...validPet, intakeDate: "2020-01-01" });
 
@@ -83,7 +83,7 @@ describe("POST /pets", () => {
   });
 
   it("trims surrounding whitespace from strings", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .send({ ...validPet, name: "  Luna  " });
 
@@ -93,7 +93,7 @@ describe("POST /pets", () => {
   it("stores a microchip id at the top level, not under medicalRecord", async () => {
     const microchipId = nextMicrochipId();
 
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .send({ ...validPet, microchipId });
 
@@ -104,11 +104,11 @@ describe("POST /pets", () => {
 
   it("rejects a microchip id that is already registered", async () => {
     const microchipId = nextMicrochipId();
-    await request(app)
+    await request(server)
       .post("/pets")
       .send({ ...validPet, microchipId });
 
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .send({ ...validPet, microchipId });
 
@@ -119,10 +119,10 @@ describe("POST /pets", () => {
   });
 
   it("allows any number of pets without a microchip", async () => {
-    const first = await request(app)
+    const first = await request(server)
       .post("/pets")
       .send({ ...validPet, microchipId: null });
-    const second = await request(app)
+    const second = await request(server)
       .post("/pets")
       .send({ ...validPet, microchipId: null });
 
@@ -131,7 +131,7 @@ describe("POST /pets", () => {
   });
 
   it("defaults microchipId to null when omitted", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .send({ ...validPet, microchipId: undefined });
 
@@ -140,7 +140,7 @@ describe("POST /pets", () => {
   });
 
   it("accepts an age of 0", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .send({ ...validPet, age: 0 });
 
@@ -149,7 +149,7 @@ describe("POST /pets", () => {
   });
 
   it("drops unknown keys nested inside medicalRecord", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .send({
         ...validPet,
@@ -161,14 +161,14 @@ describe("POST /pets", () => {
   });
 
   it("drops unknown top-level keys", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .send({ ...validPet, colour: "brown" });
 
     expect(res.status).toBe(201);
     expect(res.body).not.toHaveProperty("colour");
 
-    const fetched = await request(app).get(`/pets/${res.body.id}`);
+    const fetched = await request(server).get(`/pets/${res.body.id}`);
 
     expect(fetched.body).not.toHaveProperty("colour");
   });
@@ -288,7 +288,7 @@ const rejections: { label: string; body: object; message: string }[] = [
 
 describe("POST /pets rejections", () => {
   it.each(rejections)("rejects $label with 400", async ({ body, message }) => {
-    const res = await request(app).post("/pets").send(body);
+    const res = await request(server).post("/pets").send(body);
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ message });
@@ -298,7 +298,7 @@ describe("POST /pets rejections", () => {
     { label: "no Content-Type", type: undefined },
     { label: "text/plain", type: "text/plain" },
   ])("rejects a body sent with $label", async ({ type }) => {
-    const req = request(app).post("/pets");
+    const req = request(server).post("/pets");
     const res = await (type
       ? req.set("Content-Type", type).send("hello")
       : req.send());
@@ -310,7 +310,7 @@ describe("POST /pets rejections", () => {
   });
 
   it("rejects malformed JSON with 400", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .set("Content-Type", "application/json")
       .send("{not json");
@@ -322,17 +322,17 @@ describe("POST /pets rejections", () => {
   });
 
   it("stores nothing when the body is rejected", async () => {
-    const before = await request(app).get("/pets");
-    await request(app)
+    const before = await request(server).get("/pets");
+    await request(server)
       .post("/pets")
       .send({ ...validPet, name: "" });
-    const after = await request(app).get("/pets");
+    const after = await request(server).get("/pets");
 
     expect(after.body).toHaveLength(before.body.length);
   });
 
   it("reports the server-owned field first when other fields are invalid too", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .send({ ...validPet, id: 99, name: "" });
 

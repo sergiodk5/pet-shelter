@@ -1,16 +1,16 @@
-import type { Express } from "express";
+import type { Server } from "node:http";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestApp } from "../../app.fixtures";
 import { ids } from "./pets.fixtures";
 
-let app: Express;
+let server: Server;
 let close: () => Promise<void>;
 
 beforeAll(async () => {
   const testApp = await createTestApp();
 
-  app = testApp.appWith();
+  server = await testApp.serverWith();
   close = testApp.close;
 });
 
@@ -18,7 +18,7 @@ afterAll(() => close());
 
 describe("GET /pets", () => {
   it("returns every pet when no filter is given", async () => {
-    const res = await request(app).get("/pets");
+    const res = await request(server).get("/pets");
 
     expect(res.status).toBe(200);
     expect(ids(res.body)).toEqual([1, 2, 3]);
@@ -36,7 +36,7 @@ describe("GET /pets", () => {
     { query: "species=dog&species=cat", expected: [2, 3] },
     { query: "species=parrot", expected: [] },
   ])("filters with ?$query", async ({ query, expected }) => {
-    const res = await request(app).get(`/pets?${query}`);
+    const res = await request(server).get(`/pets?${query}`);
 
     expect(res.status).toBe(200);
     expect(ids(res.body)).toEqual(expected);
@@ -47,7 +47,7 @@ describe("GET /pets", () => {
     { query: "minAge=abc", message: "minAge must be a number." },
     { query: "maxAge=abc", message: "maxAge must be a number." },
   ])("rejects ?$query with 400", async ({ query, message }) => {
-    const res = await request(app).get(`/pets?${query}`);
+    const res = await request(server).get(`/pets?${query}`);
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ message });
@@ -56,7 +56,7 @@ describe("GET /pets", () => {
   it.each(["species=", "adopted=", "minAge=", "maxAge="])(
     "treats the blank filter ?%s as absent",
     async (query) => {
-      const res = await request(app).get(`/pets?${query}`);
+      const res = await request(server).get(`/pets?${query}`);
 
       expect(res.status).toBe(200);
       expect(ids(res.body)).toEqual([1, 2, 3]);
@@ -67,20 +67,20 @@ describe("GET /pets", () => {
     // Postgres rewrites an updated row at the end of the heap, so a SELECT
     // without ORDER BY returns 2,3,1 here. Writing the pet back unchanged keeps
     // every other assertion in this file valid.
-    const bella = await request(app).get("/pets/1");
+    const bella = await request(server).get("/pets/1");
     const { id: _id, ...unchanged } = bella.body;
 
-    const put = await request(app).put("/pets/1").send(unchanged);
+    const put = await request(server).put("/pets/1").send(unchanged);
 
     expect(put.status).toBe(200);
 
-    const res = await request(app).get("/pets");
+    const res = await request(server).get("/pets");
 
     expect(ids(res.body)).toEqual([1, 2, 3]);
   });
 
   it("derives adoption status from adoptionDate, not a stored flag", async () => {
-    const res = await request(app).get("/pets");
+    const res = await request(server).get("/pets");
 
     for (const pet of res.body) {
       expect(pet).not.toHaveProperty("adopted");
@@ -90,7 +90,7 @@ describe("GET /pets", () => {
 
 describe("GET /pets/:id", () => {
   it("returns an adopted pet with its adoption date", async () => {
-    const res = await request(app).get("/pets/2");
+    const res = await request(server).get("/pets/2");
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
@@ -101,7 +101,7 @@ describe("GET /pets/:id", () => {
   });
 
   it("returns an available pet without an adoption date", async () => {
-    const res = await request(app).get("/pets/1");
+    const res = await request(server).get("/pets/1");
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ id: 1, name: "Bella" });
@@ -109,14 +109,14 @@ describe("GET /pets/:id", () => {
   });
 
   it("returns 404 when no pet has that id", async () => {
-    const res = await request(app).get("/pets/999");
+    const res = await request(server).get("/pets/999");
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ message: "No pet found." });
   });
 
   it.each(["abc", "-1", "1.5"])("rejects id %s with 400", async (id) => {
-    const res = await request(app).get(`/pets/${id}`);
+    const res = await request(server).get(`/pets/${id}`);
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ message: "Pet ID must be a positive integer." });

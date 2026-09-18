@@ -602,16 +602,8 @@ Recorded so they're decisions rather than discoveries:
   needs a real Postgres in the loop before it can be trusted.
 - **Logging is `console`.** Fine for one process on one machine; not structured, not
   levelled, not correlated to a request.
-- **An intermittent test failure, seen three times and never reproduced on demand.** One of
-  152 fails, a different run each time; the only sighting identified was
-  `errorHandler.spec.ts > "works the same when thrown from an async handler"` under
-  `test:cov`. **The pattern is contention**: every occurrence was a run with another Node
-  process immediately before or beside it (a `db:seed` rebuild, coverage instrumentation, a
-  `typecheck`). Never reproduced in isolation — green on 8 consecutive full runs, 6
-  isolated runs of that spec with coverage, and 3 full coverage runs. Consistent with the
-  supertest ephemeral-port cross-talk described at the end of §7, which needs the whole
-  suite in flight. **Capture the assertion text when it next appears** — that is the one
-  piece missing, and grepping for `Failed Tests` in a loop is how to get it.
+- ~~An intermittent test failure~~ — **fixed**, see §7. It was real: 3 failures in 40 runs
+  on the old fixture, 0 in 40 after.
 
 **Closed since this list was written.** The old entry here was read-then-write:
 `updatePet` and `removePet` each did a `findIndex` and then mutated the array, which is a
@@ -843,6 +835,30 @@ mutant** first, one that changes no behaviour at all. Rewriting
 reused; on seed ids 1–3 both evaluate to `4`, and `nextId` is assigned once at module
 load, so nothing changes. The mutations that _do_ reuse ids — recomputing the id
 inside `addPet` from `pets.length` or `max(id) + 1` — are caught.
+
+**Hand supertest a server that is already listening.** Given an app that is not, it binds
+a **fresh ephemeral port for every request** (`lib/test.js`: `if (!addr) this._server =
+app.listen(0)`) and closes it afterwards. That was **176 listener binds per run**, measured
+by patching `http.Server.prototype.listen`. `createTestApp().serverWith()` returns a
+listening server instead, so a spec file reuses one port: **10 binds per run**.
+
+This was not cosmetic. The old fixture failed **3 times in 40 runs**, a different test each
+time, at least one confirmed as `Test timed out in 5000ms` — a request that never got a
+response. The new one failed **0 times in 40 runs**. That is ~96% confidence the rate
+actually dropped rather than 40 lucky runs, which is as much as a rare fault allows without
+catching one in the act.
+
+Three plausible-sounding explanations were tested and **disproved** on the way, which is why
+they are written down rather than left to be re-derived: TIME_WAIT counts do not measure
+listener churn (they count one client socket per request, so ~150 either way); `address()`
+is available synchronously after `listen(0)` in the simple case; and superagent opens a new
+connection per request, so keep-alive reuse is not involved.
+
+> **`serverWith` awaits the `listening` event, and must keep doing so.** Returning the
+> server before it is listening reintroduces the bug in a worse form: supertest sees a null
+> `address()`, decides the server is its own, and **closes it** when that request ends — so
+> every later request in the file hangs. That cost 5 tests in one run while this was being
+> written.
 
 **Never run two test processes at once.** `supertest` binds an ephemeral port per
 request, so two concurrent runs produce requests that land on each other's servers.

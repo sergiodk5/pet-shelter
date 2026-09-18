@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Server } from "node:http";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TestApp } from "./app.fixtures";
@@ -9,28 +9,30 @@ const alsoAllowed = "http://localhost:5173";
 
 let testApp: TestApp;
 /** No CORS_ORIGINS - the deny-by-default app. */
-let app: Express;
-/** Both origins above allowed. Shares one database with `app`. */
-let configured: Express;
+let server: Server;
+/** Both origins above allowed. Shares one database with `server`. */
+let configured: Server;
 
 beforeAll(async () => {
   testApp = await createTestApp();
 
-  app = testApp.appWith();
-  configured = testApp.appWith({ CORS_ORIGINS: `${allowed},${alsoAllowed}` });
+  server = await testApp.serverWith();
+  configured = await testApp.serverWith({
+    CORS_ORIGINS: `${allowed},${alsoAllowed}`,
+  });
 });
 
 afterAll(() => testApp.close());
 
 describe("security headers", () => {
   it("does not advertise Express", async () => {
-    const res = await request(app).get("/pets");
+    const res = await request(server).get("/pets");
 
     expect(res.headers).not.toHaveProperty("x-powered-by");
   });
 
   it("sets Helmet's default headers", async () => {
-    const res = await request(app).get("/pets");
+    const res = await request(server).get("/pets");
 
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(res.headers["content-security-policy"]).toContain(
@@ -63,14 +65,14 @@ describe("CORS", () => {
   });
 
   it("blocks every origin when the allowlist is empty", async () => {
-    const res = await request(app).get("/pets").set("Origin", allowed);
+    const res = await request(server).get("/pets").set("Origin", allowed);
 
     expect(res.status).toBe(200);
     expect(res.headers).not.toHaveProperty("access-control-allow-origin");
   });
 
   it("serves requests that send no Origin at all (curl, tests, same-origin)", async () => {
-    const res = await request(app).get("/pets");
+    const res = await request(server).get("/pets");
 
     expect(res.status).toBe(200);
     expect(res.headers).not.toHaveProperty("access-control-allow-origin");
@@ -99,14 +101,14 @@ describe("CORS", () => {
 
 describe("app", () => {
   it("returns a JSON 404 for unknown routes", async () => {
-    const res = await request(app).get("/nope");
+    const res = await request(server).get("/nope");
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ message: "No route found." });
   });
 
   it("returns 400 for a malformed JSON body", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .set("Content-Type", "application/json")
       .send('{"a":,}');
@@ -116,7 +118,7 @@ describe("app", () => {
   });
 
   it("returns 413 for a body over the 100kb limit", async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post("/pets")
       .set("Content-Type", "application/json")
       .send(JSON.stringify({ a: "x".repeat(200 * 1024) }));

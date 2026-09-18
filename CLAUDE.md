@@ -58,9 +58,14 @@ Each of these has broken something before, or is protected only by a test.
 - **Don't convert `loadConfig` to Zod unprompted.** Its validation is hand-rolled and Zod
   has since landed, so it is a live option — but it runs once at boot, not per request, and
   it isn't causing problems.
-- **Don't run two test processes at once.** `supertest` binds an ephemeral port per
-  request, so concurrent runs cross-talk and fail random tests with impossible results (a
-  401 from an API with no auth). Rule that out before debugging a flaky failure.
+- **Don't hand `supertest` an app that isn't listening.** It binds a fresh ephemeral port
+  per request and closes it after — 176 binds a run, and 3 failures in 40 runs. Specs take
+  a listening server from `createTestApp().serverWith()`, which **awaits the `listening`
+  event**; drop that await and supertest decides the server is its own and closes it,
+  hanging every later request in the file.
+- **Don't run two test processes at once.** Concurrent runs cross-talk and fail random
+  tests with impossible results (a 401 from an API with no auth). Rule that out before
+  debugging a flaky failure.
 - **Don't `git checkout` a file to revert an experiment** unless it is committed — it
   reverts to HEAD and takes uncommitted work with it.
 

@@ -18,7 +18,9 @@ src/
 │  │  ├─ pets.routes.ts           # path → middleware → controller
 │  │  ├─ pets.controllers.ts      # HTTP in, HTTP out. No business rules.
 │  │  ├─ pets.services.ts         # business logic (added when logic outgrows the controller)
-│  │  ├─ pets.repositories.ts     # data access (added when a real DB lands)
+│  │  ├─ pets.repositories.ts     # data access — the only file that writes SQL
+│  │  ├─ pets.table.ts            # the Drizzle table, colocated with its module
+│  │  ├─ pets.seed.ts             # demo rows, shared by the test fixtures and db:seed
 │  │  ├─ pets.validators.ts       # parse + validate input, return typed values
 │  │  ├─ pets.middleware.ts       # guards specific to this module
 │  │  └─ pets.types.ts            # types owned by this module
@@ -34,15 +36,20 @@ src/
 │  │  └─ httpError.ts             # HttpError + one subclass per status in use
 │  ├─ types/
 │  │  └─ api.types.ts             # ErrorResponse and friends
+│  ├─ shutdown.ts                 # the SIGTERM/SIGINT sequence, kept out of server.ts
 │  └─ lib/
 │     ├─ logger.ts
 │     └─ tokens.ts
 ├─ config/
 │  ├─ env.ts                      # validated env vars, fail fast at boot
-│  └─ db.ts
+│  └─ db.ts                       # the pool, the Db type, and ping()
 ├─ app.ts                         # wiring only: helmet, cors, json, routes, error handler
-└─ server.ts                      # listen()
+├─ seed.ts                        # npm run db:seed
+└─ server.ts                      # ping, listen(), signal handlers
 ```
+
+Outside `src/`: `migrations/` holds the generated SQL and is committed, and
+`drizzle.config.ts` lists each module's table file.
 
 Not every module needs every file. Start with `routes` + `controllers`, and add
 `services` / `repositories` at the moment the controller stops being obvious —
@@ -314,20 +321,91 @@ handles them once — last value wins, blank counts as absent — and each filte
 only its own rule. `?species=` returning every pet rather than none is tested; it used
 to be untested behaviour that a one-character change could invert.
 
-### 2.6 Configuration is injected, not imported
+### 2.6 Configuration and the database are injected, not imported
 
 `src/config/env.ts` reads and validates the environment **once**, at startup, and
-`createApp(config)` receives the result. Nothing under `modules/` or `shared/` reads
+`createApp(config, db)` receives the result. Nothing under `modules/` or `shared/` reads
 `process.env` directly.
 
 Two things follow. Invalid settings stop the process at boot instead of failing inside a
 request, and a spec can build an app with any configuration — `createApp(loadConfig({
-CORS_ORIGINS: "https://ok.example" }))` — without stubbing env vars or resetting modules.
+CORS_ORIGINS: "https://ok.example" }), db)` — without stubbing env vars or resetting
+modules.
 
 CORS is the first user: an empty allowlist means no cross-origin browser access at all, and
 the origins go to `cors` as an array so an unlisted origin gets no header rather than a 500.
 
+The database arrives the same way, and the chain is explicit rather than container-managed:
+
+```
+createApp(config, db)
+  └─ createPetRouter(createPetsControllers(createPetsRepository(db)))
+```
+
+Three consequences worth stating, because each one was the point:
+
+- **`DATABASE_URL` is deliberately not part of `AppConfig`.** The app is handed a
+  database, not a URL, so a spec never needs one. `loadDatabaseUrl()` sits beside
+  `loadConfig()` and is called only by whoever opens a connection — `server.ts`,
+  `seed.ts` and `drizzle.config.ts`.
+- **`Db` is a union of both drivers** (`NodePgDatabase | PgliteDatabase`), which is also
+  what a Drizzle transaction handle satisfies. Transactions will therefore not need
+  another refactor when adoption requests arrive.
+- **Specs get a real Postgres, in process.** `createTestDb()` starts pglite, applies the
+  migrations and returns the same `Database` shape — see §7.
+
 ---
+
+### 2.7 Persistence
+
+**Postgres through Drizzle.** No decorators, no generated client, and schemas compose with
+Zod — which matters because §2.5 already owns request validation.
+
+**The table lives in its module.** `pets.table.ts` sits beside the repository that queries
+it, and `drizzle.config.ts` lists each table file by name rather than globbing, so adding a
+module adds one line there. Drizzle's quickstart puts everything in `src/db/schema.ts`; that
+is a quickstart, not architecture, and it fights §2.1 the moment a second module exists.
+
+**Only the repository writes SQL.** Controllers await it and never see a row. Two private
+functions own the gap between storage and the entity:
+
+| Direction | Function | What it knows                                                    |
+| --------- | -------- | ---------------------------------------------------------------- |
+| row → Pet | `toPet`  | the table is flat; `Pet` nests `medicalRecord`                   |
+| Pet → row | `toRow`  | the same, plus that an absent `adoptionDate` is stored as `NULL` |
+
+That last part is easy to get wrong in both directions. SQL says `NULL`; `Pet` says the key
+is **absent**. Assigning `null` when reading would make `adoptionDate !== undefined` true,
+so an available pet would report as adopted and serialize as `"adoptionDate": null`.
+`toPet` spreads the key conditionally for exactly that reason.
+
+**`ORDER BY id` is not optional.** Postgres rewrites an updated row at the end of the heap,
+so an unordered `SELECT` returns `2, 3, 1` after a single `PUT`. Nothing in the suite caught
+it until a test was added that updates a pet and then asserts list order.
+
+**Constraint breaches become `HttpError`s in the repository, or they become 500s.** A
+duplicate `microchip_id` is a client mistake, and `errorHandler` would otherwise report our
+fault. The translation is duck-typed on the SQLSTATE code rather than `instanceof`, because
+Drizzle wraps driver errors in a `DrizzleQueryError` and puts the original in `cause`, and
+pglite minifies its error class name. Translate the ones you can explain; rethrow the rest.
+
+**Validation is two layers, on purpose.** Zod rejects bad input at the edge with a readable
+message; the CHECK constraints (`age >= 0`, `weight_kg > 0`) are the backstop for anything
+that reaches the database another way. Zod shadows them completely for HTTP traffic, which
+is why `pets.repositories.spec.ts` exists: a non-unique database error cannot be provoked
+through a request, so that one case is driven against the repository directly.
+
+**Migrations are generated, committed, and never hand-edited.** `npm run db:generate`
+diffs the table files against the snapshot in `migrations/meta/`. `npm run db:check` is the
+guard: it runs `drizzle-kit check` for a journal two branches have both written to, then
+regenerates and asserts the tree is clean, which catches a table edited without its
+migration. CI runs it.
+
+**Storage is flatter than the entity, for now.** `weight_kg` and `vaccinations` are columns
+on `pets` while `Pet` keeps them inside `medicalRecord`, so the wrapper is already there
+when they move to a history table. `microchipId` was pulled **out** of `medicalRecord` for
+the opposite reason: it identifies the animal permanently and is not a medical event, so it
+would have been left behind by that move.
 
 ## 3. Auth
 
@@ -402,12 +480,15 @@ src/
 │     ├─ pets.validators.ts
 │     ├─ pets.middleware.ts
 │     ├─ pets.repositories.ts
+│     ├─ pets.table.ts
+│     ├─ pets.seed.ts
 │     ├─ pets.types.ts
 │     ├─ pets.fixtures.ts
 │     ├─ pets.spec.ts
 │     ├─ pets.post.spec.ts
 │     ├─ pets.put.spec.ts
-│     └─ pets.delete.spec.ts
+│     ├─ pets.delete.spec.ts
+│     └─ pets.repositories.spec.ts
 ├─ shared/
 │  ├─ middleware/
 │  │  ├─ errorHandler.ts
@@ -416,15 +497,24 @@ src/
 │  ├─ errors/
 │  │  ├─ httpError.ts
 │  │  └─ httpError.spec.ts
-│  └─ types/
-│     └─ api.types.ts
+│  ├─ types/
+│  │  └─ api.types.ts
+│  ├─ shutdown.ts
+│  └─ shutdown.spec.ts
 ├─ config/
 │  ├─ env.ts
-│  └─ env.spec.ts
+│  ├─ env.spec.ts
+│  ├─ db.ts
+│  └─ db.fixtures.ts
 ├─ app.ts
 ├─ app.spec.ts
+├─ app.fixtures.ts
+├─ seed.ts
 └─ server.ts
 ```
+
+Plus `migrations/` and `drizzle.config.ts` at the root, and `compose.yml` for a local
+Postgres.
 
 `app.ts` is pure wiring — cors, json, the pets router, then the two terminal handlers
 in that order. Adding a module means adding one `app.use` line.
@@ -435,11 +525,18 @@ Deliberately absent, per §1. Add each at the moment it's needed, not before:
 | ---------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `modules/pets/pets.services.ts`                      | a rule spans more than one repository — first case: approving an adoption request |
 | `modules/auth/` + `shared/middleware/requireAuth.ts` | auth arrives (§3)                                                                 |
-| `config/db.ts`                                       | a real DB lands                                                                   |
+| `shared/lib/logger.ts`                               | `console` stops being enough — see the gaps below                                 |
 
-`pets.fixtures.ts` has since been added — PUT and DELETE specs were the second and
-third consumers of the same pet body. It is excluded from `tsconfig.build.json`, or
-test data would compile into `dist/`.
+`config/db.ts` has since landed, and with it `pets.table.ts`, `migrations/` and
+`compose.yml` (§2.7). **Pets are stored in Postgres**; nothing is held in module state any
+more.
+
+Files ending in `.fixtures.ts` are test-only and excluded from `tsconfig.build.json`, or
+test data — and pglite — would compile into `dist/`. There are three: `pets.fixtures.ts`
+for request bodies, `db.fixtures.ts` for the in-process database, and `app.fixtures.ts`,
+which combines them into the `createTestApp()` that every HTTP spec starts from. The demo
+pets themselves live in `pets.seed.ts`, which **is** built, because `src/seed.ts` imports
+them; `pets.fixtures.ts` re-exports `seedPets` so the two can never drift.
 
 ### Known gaps
 
@@ -448,13 +545,25 @@ Recorded so they're decisions rather than discoveries:
 - **405 is never returned.** `PUT /pets` and `DELETE /pets` match no route, so they
   fall through to `notFound` as a `404`. The correct answer for a path that exists
   under other methods is `405` with an `Allow` header. Worth doing when a client cares.
-- **The repository does read-then-write.** `updatePet` and `removePet` each `findIndex`
-  and then mutate — two steps where SQL needs one `UPDATE … WHERE id = ?` reading the
-  affected-row count. Harmless against a module-level array with no concurrent writers;
-  a lost-update race against a real database. `findPetById` also hands back the stored
-  object by reference. All three are contained in `pets.repositories.ts`, and the
-  signatures (`Pet | undefined`, `boolean`) map onto a row count, so this is a known
-  migration task rather than a redesign.
+- **`DrizzleQueryError.message` embeds the SQL and its parameter values**, and
+  `errorHandler` logs 5xx with `console.error`. Row data therefore reaches the logs on an
+  unexpected database error. Harmless with demo pets and a personal machine; it needs
+  redaction before anything real is stored, and it is the strongest argument for a real
+  logger.
+- **pglite is single-connection.** It is a genuine Postgres build, so SQL, constraints and
+  types all behave, but it exercises no pooling and no concurrency. Anything that turns on
+  genuine concurrent connections — the first candidate is approving an adoption request —
+  needs a real Postgres in the loop before it can be trusted.
+- **Logging is `console`.** Fine for one process on one machine; not structured, not
+  levelled, not correlated to a request.
+
+**Closed since this list was written.** The old entry here was read-then-write:
+`updatePet` and `removePet` each did a `findIndex` and then mutated the array, which is a
+lost-update race against a real database, and `findPetById` handed back the stored object
+by reference. All three are gone — `updatePet` is one `UPDATE … WHERE id = ? RETURNING`,
+`removePet` one `DELETE … RETURNING`, and every read builds a fresh object through `toPet`.
+The prediction that the signatures (`Pet | undefined`, `boolean`) would map onto a row
+count held exactly, so no caller changed.
 
 The services row is the one most likely to be added too early. NestJS generates a
 service per module because **dependency injection is how its controllers receive
@@ -472,9 +581,19 @@ lands it becomes a `WHERE` clause and moves **down** into the repository, not
 sideways into a service.
 
 The `app.ts` / `server.ts` split landed ahead of this. `app.ts` exports
-`createApp(config)`, which builds the app _without_ listening, so a test can build one per
-case and drive it on an ephemeral port — which is what makes adding auth safe rather than
-hopeful.
+`createApp(config, db)`, which builds the app _without_ listening, so a test can build one
+per case and drive it on an ephemeral port — which is what makes adding auth safe rather
+than hopeful. The database moving behind the same seam cost no spec any change beyond
+awaiting the app.
+
+`server.ts` stays wiring, and that is load-bearing rather than aesthetic: it is excluded
+from coverage, so logic placed there goes unmeasured. It now pings the database before
+`listen()` — the pool connects lazily, so a bad `DATABASE_URL` would otherwise stay quiet
+until the first request and then look like a runtime fault — and installs the `SIGINT` and
+`SIGTERM` handlers. The shutdown sequence itself lives in `shared/shutdown.ts` for that
+reason: stop the server, let in-flight requests finish, then close the pool, because an
+unclosed pool keeps the process alive. It takes a narrow structural type for the server, so
+its spec drives it with a fake and binds no port.
 
 ---
 
@@ -490,23 +609,36 @@ hopeful.
    handler owns status and body (§2.4).
 7. Add `<name>.services.ts` / `<name>.repositories.ts` when the controller stops
    being obvious. Not before.
-8. Add `<name>.spec.ts` beside the routes and drive them with supertest against
-   `app`.
+8. Storing anything? `<name>.table.ts` beside the repository, add it to the `schema`
+   array in `drizzle.config.ts` and to `schema` in `config/db.ts`, then
+   `npm run db:generate` and commit the SQL (§2.7).
+9. Add `<name>.spec.ts` beside the routes and drive them with supertest against an app
+   from `createTestApp()`.
 
 ---
 
 ## 7. Dev workflow
 
 ```
-npm run dev        # nodemon: rebuild + restart on save
-npm run build      # rm -rf dist && npx tsc -p tsconfig.build.json
-npm start          # build, then run
-npm run lint       # oxlint --type-aware src
-npm run format     # prettier --write .
-npm run typecheck  # tsc --noEmit
-npm test           # vitest run
-npm run test:cov   # vitest run --coverage
+npm run dev          # nodemon: rebuild + restart on save
+npm run build        # rm -rf dist && npx tsc -p tsconfig.build.json
+npm start            # build, then run
+npm run lint         # oxlint --type-aware src
+npm run format       # prettier --write .
+npm run typecheck    # tsc --noEmit
+npm test             # vitest run
+npm run test:cov     # vitest run --coverage
+
+docker compose up -d # Postgres on 5432, Adminer on 8080
+npm run db:generate  # table files → migrations/
+npm run db:check     # history consistency, then drift (CI runs this)
+npm run db:migrate   # apply migrations
+npm run db:seed      # truncate, then demo pets + 50 faker pets
+npm run db:studio    # drizzle studio
 ```
+
+`compose.yml` is local development only — the suite needs nothing running (§7, Tests).
+`npm run db:seed` refuses to run when `NODE_ENV` is `production`, because it truncates.
 
 `nodemon.json` watches `src/`, debounces 250ms (so a multi-file save triggers one
 rebuild, not several), and runs `npm run build && node dist/server.js`.
@@ -548,24 +680,46 @@ a throwaway Express app (see `errorHandler.spec.ts`).
 `tsconfig.build.json`, which excludes them from `dist/`. Tests run in the **pre-push**
 hook rather than pre-commit, so commits stay fast and a failing test blocks the push.
 
-**A spec file per endpoint when the endpoint writes.** `pets.post.spec.ts` is
-separate from `pets.spec.ts` because the in-memory repository is module state: a
-`POST` test mutates the array that `pets.spec.ts` asserts against exactly. Vitest
-gives each _file_ its own module registry, so a separate file starts from pristine
-seed data no matter what another file did — while two `describe` blocks in one file
-would only pass while they happened to run in the right order.
+**Specs get a real Postgres, in process.** `createTestDb()` starts
+[pglite](https://pglite.dev) — Postgres compiled to WASM — applies the same migrations the
+real database gets, and returns the same `Database` shape. No Docker, no CI service
+container, and no shared state: each spec file gets its own instance, at about 200ms each.
+The comparison that settled it is in `docs/database-migration-plan.md`; the short version
+is that a shared real Postgres forces `maxWorkers: 1`, and this preserves the per-file
+isolation the suite already depended on.
+
+Its one real limitation is that it is single-connection, so pooling and concurrency go
+untested (§5, Known gaps).
+
+**A spec file per endpoint when the endpoint writes.** `pets.post.spec.ts` is separate
+from `pets.spec.ts` because a `POST` test adds rows that `pets.spec.ts` asserts against
+exactly. This was module state before and is a database now; the reasoning did not change,
+because Vitest gives each _file_ its own module registry and therefore its own pglite
+instance. A separate file starts from pristine seed data no matter what another file did,
+while two `describe` blocks in one file would only pass while they happened to run in the
+right order.
 
 Within a write spec, assert membership (`toContain`), never an exact array: earlier
 tests in the same file have already added rows.
 
-**Everything here is an integration test** — they drive helmet, `express.json`, the
-router, the validator and the repository, with nothing mocked. That's deliberate:
-status codes, the `Location` header and the error envelope _are_ the contract, and
-a unit test of `parseNewPet` couldn't prove `errorHandler` is wired up. The 21-row
-rejection table is arguably a unit test of a pure function paying for a full request
-cycle; at 89 tests in ~260ms that's not worth fixing. Split with Vitest's
-`test.projects` (`workspace` was deprecated in 3.2) when the suite passes a couple
-of seconds, or when a real database forces setup and teardown.
+**Almost everything here is an integration test** — they drive helmet,
+`express.json`, the router, the validator, the repository and now Postgres, with nothing
+mocked. That's deliberate: status codes, the `Location` header and the error envelope _are_
+the contract, and a unit test of `parseNewPet` couldn't prove `errorHandler` is wired up.
+The 21-row rejection table is arguably a unit test of a pure function paying for a full
+request cycle.
+
+Two specs are deliberately not integration tests, and each says why in its own header
+comment: `pets.repositories.spec.ts`, because Zod shadows every CHECK constraint so a
+non-unique database error cannot be provoked through a request, and `shutdown.spec.ts`,
+because the alternative is binding a port to kill it.
+
+**The trigger to split has now fired, and was declined on purpose.** The old note here
+said to reach for Vitest's `test.projects` (`workspace` was deprecated in 3.2) "when the
+suite passes a couple of seconds, or when a real database forces setup and teardown". Both
+happened: 146 tests in ~2.4s, with a database. It is still not worth it — pglite costs
+~200ms per file with no teardown to write, and the whole run is under the threshold where
+anyone waits. Revisit if a spec file needs a fixture that pglite cannot give it cheaply.
 
 **Mutation-test anything load-bearing.** A suite that passes proves nothing until
 it's been watched to fail: break the source deliberately, confirm the right tests
@@ -573,6 +727,18 @@ go red, revert. Deleting `errorHandler`'s 4th parameter, ignoring `err.status` o
 hardcoding `expose = false` each fail 33–40 tests — which is both the proof the
 suite works and a reminder that `errorHandler.ts` is now the highest-consequence
 file in the repo.
+
+The database move was checked the same way. The mutation that **survived** a green suite
+was the missing `ORDER BY id` in `findPets` (§2.7) — on a line at 100% coverage, which is
+the whole point: **100% covered is not the same as tested**. A test that updates a pet and
+then asserts list order closed it.
+
+`toPet`'s conditional `adoptionDate` spread came out well defended, and by three different
+mechanisms, which is worth knowing before touching it: assigning `row.adoptionDate`
+directly is a **type error**, so `tsc` refuses it; if it compiled, 5 tests fail on
+`"adoptionDate": null` appearing in the body. Writing `row.adoptionDate ?? undefined`
+survives — but that is an **equivalent mutant**, since an explicit `undefined` and an
+absent key serialize identically and both leave `isAdopted` false.
 
 It also finds behaviour nothing was testing. Two mutations **survived** a full green
 run after the Zod conversion: treating a blank `?species=` as a value rather than as
@@ -596,7 +762,12 @@ the code.
 
 ### CI
 
-`.github/workflows/ci.yml` runs `npm ci`, then `format:check`, `lint`, `typecheck`, `test` and `build` on pushes to
-`master` and on pull requests, using the Node version from `.nvmrc`. It sets `HUSKY=0`,
-as husky recommends, so `npm ci` doesn't install git hooks on the runner. Superseded
-pull-request runs are cancelled; runs on `master` always finish.
+`.github/workflows/ci.yml` runs `npm ci`, then `format:check`, `lint`, `typecheck`,
+`db:check`, `test` and `build` on pushes to `master` and on pull requests, using the Node
+version from `.nvmrc`. It sets `HUSKY=0`, as husky recommends, so `npm ci` doesn't install
+git hooks on the runner. Superseded pull-request runs are cancelled; runs on `master`
+always finish.
+
+**No Postgres service container, and that is the decision** — pglite runs in process and
+`createTestDb` applies the migrations itself, so there is nothing to wait for and nothing
+to configure. `db:check` opens no connection either, so CI needs no `DATABASE_URL` at all.

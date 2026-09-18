@@ -30,8 +30,8 @@ Built with Express 5 and TypeScript.
 | Users and authentication | 🔜 Planned   |
 | Adoption requests        | 🔜 Planned   |
 
-The pets served today are **demo data** for development. They live in memory and
-reset every time the server restarts. A database is planned for real data.
+Pets are stored in **PostgreSQL**. The pets you get from a fresh checkout are
+demo data, put there by `npm run db:seed`; everything the API writes persists.
 
 ---
 
@@ -40,24 +40,37 @@ reset every time the server restarts. A database is planned for real data.
 - **Node.js 24**. The version is pinned in `.nvmrc`, so `nvm use` picks it up. The
   project uses the TypeScript 7 native compiler and `@tsconfig/node24`.
 - npm
+- **Docker**, for the local Postgres in `compose.yml`. Any Postgres 18 will do if
+  you would rather point `DATABASE_URL` somewhere else. The **test suite needs
+  neither** — see [Tests](#tests).
 
 ## Getting started
 
 ```bash
-npm install      # also installs the git hooks (via the "prepare" script)
-npm run dev      # start the server; rebuilds and restarts when you save
+npm install            # also installs the git hooks (via the "prepare" script)
+cp .env.example .env   # DATABASE_URL already matches compose.yml
+docker compose up -d   # Postgres on 5432, Adminer on 8080
+npm run db:migrate     # create the tables
+npm run db:seed        # demo pets, so the filters have something to filter
+npm run dev            # start the server; rebuilds and restarts when you save
 ```
 
-The API listens on **http://localhost:8000**.
+The API listens on **http://localhost:8000**. A bad `DATABASE_URL` stops the server
+at startup rather than failing on the first request, and `Ctrl-C` lets in-flight
+requests finish before closing the pool.
+
+Adminer is at **http://localhost:8080** — system `PostgreSQL`, server `postgres`,
+user and password `postgres`, database `pet_shelter`.
 
 ### Configuration
 
-All settings are optional; the defaults below are what you get with no `.env` at all. Copy
-`.env.example` to `.env` (gitignored) to override them. Invalid values stop the server at
-startup rather than failing later.
+`DATABASE_URL` is required; everything else is optional and the defaults below are what you
+get without it. Copy `.env.example` to `.env` (gitignored) to override them. Invalid values
+stop the server at startup rather than failing later.
 
 | Variable       | Default       | Meaning                                                                                                                                                         |
 | -------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | _(required)_  | Postgres connection string. The one in `.env.example` matches `compose.yml`.                                                                                    |
 | `PORT`         | `8000`        | Port the API listens on                                                                                                                                         |
 | `NODE_ENV`     | `development` | `development` or `production`                                                                                                                                   |
 | `CORS_ORIGINS` | _(empty)_     | Comma-separated browser origins allowed to call the API. Empty blocks all cross-origin browser requests; curl, server-to-server calls and tests are unaffected. |
@@ -79,6 +92,20 @@ startup rather than failing later.
 | `npm run test:cov`     | Run tests with a coverage report                           |
 | `npm run commit`       | Write a commit message with the guided prompt (commitizen) |
 
+Database commands:
+
+| Command               | What it does                                                               |
+| --------------------- | -------------------------------------------------------------------------- |
+| `npm run db:generate` | Turn a change to a `*.table.ts` file into a migration in `migrations/`     |
+| `npm run db:migrate`  | Apply pending migrations                                                   |
+| `npm run db:check`    | Fail if a table was edited without generating its migration (CI runs this) |
+| `npm run db:seed`     | Empty the tables, then insert the demo pets and 50 generated ones          |
+| `npm run db:studio`   | Open Drizzle Studio                                                        |
+| `npm run db:push`     | Push the schema straight to the database, skipping migrations              |
+
+`db:seed` **empties every table it touches** and refuses to run when `NODE_ENV` is
+`production`. It is deterministic: the same 53 pets come out every time.
+
 ### Tests
 
 Specs live next to the code as `*.spec.ts` and use [vitest](https://vitest.dev/) with
@@ -90,11 +117,15 @@ npx vitest run src/modules/pets/pets.spec.ts            # one file
 npx vitest run src/modules/pets/pets.spec.ts -t "rejects id"  # one test by name
 ```
 
+**The suite needs nothing running.** Each spec file gets its own Postgres, in
+process, through [pglite](https://pglite.dev) — a WASM build of the real thing — with
+the same migrations applied. No Docker, no `DATABASE_URL`, about 200ms per file.
+
 Endpoints that write have their own spec file — `pets.post.spec.ts`,
-`pets.put.spec.ts`, `pets.delete.spec.ts`. The demo data is module state, so a write
-test would otherwise mutate the array the `GET` tests assert against; Vitest isolates
-module state per file, not per `describe`. Shared request bodies live in
-`pets.fixtures.ts`.
+`pets.put.spec.ts`, `pets.delete.spec.ts`. A write test would otherwise leave rows
+that the `GET` tests assert against; Vitest isolates modules per file, not per
+`describe`, so each file starts from the same seed data. Shared request bodies live
+in `pets.fixtures.ts`.
 
 Run the suite **one process at a time**: `supertest` binds an ephemeral port per
 request, so two concurrent runs cross-talk and fail random tests for no real reason.
@@ -155,10 +186,10 @@ Registers a pet. Send `Content-Type: application/json`.
 | `age`                        | integer          | yes      | `0` or more                                                     |
 | `photo`                      | string           | yes      | Non-empty                                                       |
 | `intakeDate`                 | date string      | no       | Defaults to now. Any format `Date` can parse, e.g. `2024-06-15` |
+| `microchipId`                | string \| `null` | no       | Defaults to `null`. Must be unique across the shelter.          |
 | `medicalRecord`              | object           | yes      | See below                                                       |
 | `medicalRecord.vaccinations` | string[]         | yes      | May be empty                                                    |
 | `medicalRecord.weightKg`     | number           | yes      | Greater than `0`                                                |
-| `medicalRecord.microchipId`  | string \| `null` | no       | Defaults to `null`                                              |
 
 `id` is assigned by the shelter and `adoptionDate` is set when a pet is adopted —
 sending either is a `400`. Any **other** field not listed above is ignored: it's
@@ -168,8 +199,8 @@ actually saved.
 ```bash
 curl -i -X POST http://localhost:8000/pets \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Luna","species":"Dog","breed":"Beagle","age":2,
-       "medicalRecord":{"vaccinations":["Rabies"],"weightKg":9.2,"microchipId":null},
+  -d '{"name":"Luna","species":"Dog","breed":"Beagle","age":2,"microchipId":null,
+       "medicalRecord":{"vaccinations":["Rabies"],"weightKg":9.2},
        "photo":"https://picsum.photos/id/240/200/300"}'
 ```
 
@@ -177,6 +208,7 @@ curl -i -X POST http://localhost:8000/pets \
 | ------ | ----------------------------------------------------------------- |
 | `201`  | The stored pet, with a `Location` header pointing at `/pets/{id}` |
 | `400`  | A field is missing, the wrong type, unknown, or server-owned      |
+| `409`  | `microchipId` already belongs to another pet                      |
 
 The response body is the pet as stored — the same shape `GET /pets/:id` returns —
 so the server-assigned `id` and the normalized `intakeDate` come back without a
@@ -202,8 +234,8 @@ body is a `400`. Unknown fields are ignored, as on create.
 curl -X PUT http://localhost:8000/pets/1 \
   -H 'Content-Type: application/json' \
   -d '{"name":"Bella","species":"Dog","breed":"Border Collie","age":3,
-       "intakeDate":"2024-06-15","adoptionDate":"2026-09-17",
-       "medicalRecord":{"vaccinations":["Rabies"],"weightKg":18.4,"microchipId":null},
+       "intakeDate":"2024-06-15","adoptionDate":"2026-09-17","microchipId":null,
+       "medicalRecord":{"vaccinations":["Rabies"],"weightKg":18.4},
        "photo":"https://picsum.photos/id/237/200/300"}'
 
 # ...and return it: same body with adoptionDate null
@@ -214,6 +246,7 @@ curl -X PUT http://localhost:8000/pets/1 \
 | `200`  | The replaced pet                                          |
 | `400`  | `id` is not a positive integer, or the body breaks a rule |
 | `404`  | No pet with that id                                       |
+| `409`  | `microchipId` already belongs to another pet              |
 
 The body is validated **before** the id is looked up, so a bad body on a URL that
 doesn't exist reports the body problem, not a `404`.
@@ -237,7 +270,8 @@ curl -i -X DELETE http://localhost:8000/pets/1
 | `404`  | No pet with that id            |
 
 Ids are **never reused**. Delete pet `4` and the next pet created is `5`, so a stored
-link can't quietly start pointing at a different animal.
+link can't quietly start pointing at a different animal. That is the database's
+identity column, not bookkeeping in the application.
 
 ### Other errors
 
@@ -245,6 +279,7 @@ link can't quietly start pointing at a different animal.
 | ------ | ------------------------------------------------------------------------ |
 | `400`  | Request body is not valid JSON                                           |
 | `404`  | Unknown route                                                            |
+| `409`  | A value that must be unique is already taken                             |
 | `413`  | Request body is over the 100kb limit                                     |
 | `500`  | Unexpected server error. Details are logged server-side, never returned. |
 
@@ -255,11 +290,16 @@ link can't quietly start pointing at a different animal.
 ```
 src/
 ├─ modules/            # one folder per business area
-│  └─ pets/            # routes, controllers, validators, middleware, repositories, types
-├─ shared/             # cross-cutting code: error handling, shared types
-├─ config/             # validated env vars (PORT, NODE_ENV, CORS_ORIGINS)
-├─ app.ts              # createApp(config): builds the app, never listens
-└─ server.ts           # starts the server
+│  └─ pets/            # routes, controllers, validators, middleware,
+│                      # repositories, the Drizzle table, types
+├─ shared/             # cross-cutting code: error handling, shared types, shutdown
+├─ config/             # validated env vars, and the database connection
+├─ app.ts              # createApp(config, db): builds the app, never listens
+├─ seed.ts             # npm run db:seed
+└─ server.ts           # checks the database, starts the server, handles signals
+
+migrations/            # generated SQL, committed
+compose.yml            # Postgres + Adminer for local development
 ```
 
 The reasoning behind this layout, and the conventions for adding a new module, are

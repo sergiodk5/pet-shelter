@@ -9,8 +9,8 @@ adoption, users request to adopt, and the shelter tracks those requests. Full CR
 `/pets` exists today — `GET /pets` (with filters), `GET /pets/:id`, `POST /pets`,
 `PUT /pets/:id`, `DELETE /pets/:id` — and a pet is adopted or returned by setting or
 clearing `adoptionDate` through PUT. Users, auth and adoption requests are planned.
-Pets are **in-memory demo data** in `src/modules/pets/pets.repositories.ts` and reset on
-restart.
+Pets are stored in **PostgreSQL via Drizzle**; `npm run db:seed` fills a development
+database with demo data.
 
 ## Commands
 
@@ -27,7 +27,16 @@ npm test              # vitest run
 npm run test:watch    # vitest
 npm run test:cov      # vitest run --coverage
 npm run commit        # commitizen prompt for a conventional commit message
+
+docker compose up -d  # Postgres on 5432, Adminer on 8080 (local dev only)
+npm run db:generate   # a change to a *.table.ts file -> migrations/
+npm run db:migrate    # apply pending migrations
+npm run db:check      # migration history + drift guard (CI runs this)
+npm run db:seed       # truncate, then demo pets + 50 faker pets
+npm run db:studio     # drizzle studio
 ```
+
+The **test suite needs none of this running** — it uses pglite in process.
 
 Run one spec file, or one test by name:
 `npx vitest run src/modules/pets/pets.spec.ts -t "rejects id"`. Node 24 is required
@@ -81,12 +90,20 @@ connection, so no `DATABASE_URL` either. Run it locally before pushing a schema 
 `docs/architecture.md` is the authoritative reference: it records each rule and the reason
 for it. Read it before adding a module or moving code. The load-bearing points:
 
-- **`app.ts` exports `createApp(config)`, which builds the app without listening;
-  `server.ts` calls `createApp(loadConfig())` and `listen()`.** Specs build their own app per
-  test with any config — no env stubbing, no port bound.
+- **`app.ts` exports `createApp(config, db)`, which builds the app without listening;
+  `server.ts` opens the database, pings it, then calls `listen()`.** Specs build their own
+  app per test from `createTestApp()` — no env stubbing, no port bound, no database running.
+  Wiring is explicit: `createPetRouter(createPetsControllers(createPetsRepository(db)))`.
+- **`server.ts` stays wiring.** It is excluded from coverage, so logic placed there goes
+  unmeasured. Graceful shutdown lives in `src/shared/shutdown.ts` for exactly that reason;
+  put the next piece of real logic there too. It takes a narrow structural type for the
+  server, so its spec uses a fake and binds no port. Do not add a `closeIdleConnections()`
+  call — `http.Server.close` already does it via `httpServerPreClose`.
 - **Configuration**: `src/config/env.ts` exports `loadConfig(env = process.env)`, which
   validates `PORT`, `NODE_ENV` and `CORS_ORIGINS` and **throws at startup** on bad input.
   `server.ts` calls it. `.env` is loaded by Node's `--env-file-if-exists` flag, not dotenv.
+  `loadDatabaseUrl()` is deliberately **separate from `AppConfig`** — the app is handed a
+  database, not a URL, so no spec needs one.
   Its validation is still hand-rolled. Zod has since landed for request bodies, so
   converting `loadConfig` is now a live option — but it runs once at boot, not per
   request, and it isn't causing problems. Don't convert it unprompted.
@@ -121,15 +138,33 @@ for it. Read it before adding a module or moving code. The load-bearing points:
   error handlers by arity; dropping `_next` fails ~40 tests.
 - **Types stay next to what they describe**; promote to `shared/types/` only when modules in
   different layers must agree on the shape.
+- **Persistence — read `docs/architecture.md` §2.7 before touching the schema or the
+  repository.** The load-bearing parts:
+  - Each module owns its table (`pets.table.ts`), registered in `drizzle.config.ts` and in
+    `schema` in `config/db.ts`. Migrations are generated with `npm run db:generate`,
+    committed, and never hand-edited.
+  - **Only the repository writes SQL.** `toPet` / `toRow` are the only code that knows the
+    table is flat while `Pet` nests `medicalRecord`.
+  - **`adoptionDate` is `NULL` in SQL and _absent_ on `Pet`.** `toPet` spreads the key
+    conditionally; assigning it would make an available pet report as adopted.
+  - **`findPets` must keep `.orderBy(petsTable.id)`.** Postgres moves an updated row to the
+    end of the heap, so an unordered `SELECT` returns `2, 3, 1` after one `PUT`.
+  - Constraint breaches are translated in the repository (duplicate `microchipId` → 409).
+    Duck-type on the SQLSTATE `code`, which sits in `error.cause` — Drizzle wraps driver
+    errors, and `instanceof` fails because pglite minifies its error class.
+  - `numeric` comes back from node-postgres as a **string**; use `doublePrecision`.
 - **Adoption status is derived, not stored**: a pet is adopted iff it has an
   `adoptionDate` (`isAdopted` in the pets controller). There is no `adopted` field; the
   `?adopted=` query filter is computed from it.
-- **Tests** are colocated `*.spec.ts` files run by vitest. HTTP behaviour is tested with
-  supertest against `app` (no port bound). Middleware is tested by mounting it on a
+- **Tests** are colocated `*.spec.ts` files run by vitest, and **need nothing running**:
+  `createTestDb()` starts pglite (real Postgres, in process) and applies the migrations, per
+  spec file. HTTP behaviour is tested with supertest against `app` (no port bound). Middleware is tested by mounting it on a
   throwaway Express app with a route that throws (see `errorHandler.spec.ts`).
-  **Endpoints that write get their own spec file** (`pets.post.spec.ts`): the repository is
-  module state, and vitest isolates it per file, not per `describe`. Assert membership with
-  `toContain`, never an exact array.
+  **Endpoints that write get their own spec file** (`pets.post.spec.ts`): vitest isolates
+  modules per file, not per `describe`, so each file gets its own database and starts from
+  the same seed data. Assert membership with `toContain`, never an exact array.
+  `pets.repositories.spec.ts` is driven below HTTP because Zod shadows every CHECK
+  constraint, so a non-unique database error cannot be provoked through a request.
 - **Validation is Zod 4** (`pets.validators.ts`). Read `docs/architecture.md` §2.5 before
   touching a schema — the rules there are not obvious from the code:
   - Each rule's `error:` holds only the **predicate** (`"must be a non-empty string."`);

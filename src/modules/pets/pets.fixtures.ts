@@ -18,18 +18,6 @@ export const validReplacementBody = {
   intakeDate: "2024-06-15",
 };
 
-/**
- * A valid body with the parts a test doesn't care about already filled in.
- *
- * Use this when the data is irrelevant ("a pet, any pet"); write the value out
- * literally when the data *is* the point (`name: "  Luna  "` for trimming).
- * Deliberately deterministic - random fixtures force tautological assertions
- * like `toBe(pet.name)`, which pass even if the API never stored anything.
- */
-export const makePetBody = (
-  overrides: Partial<typeof validPetBody> = {},
-): typeof validPetBody => ({ ...validPetBody, ...overrides });
-
 let chipCounter = 0;
 
 /**

@@ -60,6 +60,14 @@ export const seedPets = async (db: Db): Promise<void> => {
 const FAKER_SEED = 20260918;
 const RANDOM_PETS = 50;
 
+/**
+ * Every generated date is relative to this rather than to `new Date()`. Seeding
+ * the PRNG is not enough on its own: `date.past()` and `date.between({ to: now })`
+ * are anchored to the current time, so two runs a millisecond apart produce
+ * different timestamps. The cost is that the demo shelter does not age.
+ */
+const REFERENCE_DATE = new Date("2026-09-18T00:00:00.000Z");
+
 const VACCINES = [
   "Rabies",
   "Distemper",
@@ -80,6 +88,7 @@ const makeRandomPets = async (count: number): Promise<PetInsert[]> => {
   const { faker } = await import("@faker-js/faker");
 
   faker.seed(FAKER_SEED);
+  faker.setDefaultRefDate(REFERENCE_DATE);
 
   // Four species with a matching breed generator and a plausible weight range.
   // `faker.animal.type()` has 44 values, which is too varied to demonstrate the
@@ -112,7 +121,10 @@ const makeRandomPets = async (count: number): Promise<PetInsert[]> => {
       age: faker.number.int({ min: 0, max: 15 }),
       intakeDate,
       ...(faker.datatype.boolean({ probability: 0.4 }) && {
-        adoptionDate: faker.date.between({ from: intakeDate, to: new Date() }),
+        adoptionDate: faker.date.between({
+          from: intakeDate,
+          to: REFERENCE_DATE,
+        }),
       }),
       photo: `https://picsum.photos/id/${faker.number.int({ min: 1, max: 999 })}/200/300`,
       weightKg: faker.number.float({

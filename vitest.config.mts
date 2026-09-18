@@ -11,11 +11,17 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: [
         "src/**/*.spec.ts",
-        // The entrypoint: `loadConfig()`, `createApp()` and `listen()`. Covering it
-        // would mean binding a port, which is exactly what the app.ts / server.ts
-        // split exists to avoid. Revisit if it ever grows real logic — graceful
-        // shutdown, signal handling — since that logic would then go unmeasured.
+        // The entrypoint: `loadConfig()`, `createApp()`, `listen()` and the signal
+        // handlers. Covering it would mean binding a port, which is exactly what the
+        // app.ts / server.ts split exists to avoid. The rule this exclusion depends
+        // on: `server.ts` stays wiring. When graceful shutdown arrived it went to
+        // `shared/shutdown.ts` precisely so it would stay measured — put the next
+        // piece of real logic there too, not here.
         "src/server.ts",
+        // The dev seed script, excluded for the same reason: it is a command, not
+        // part of the API. The data it produces is the pets module's `demoPets`,
+        // which the suite does assert against.
+        "src/seed.ts",
         // Type-only modules compile to an empty file, so there is nothing to
         // measure. v8 records 0 of 0, which the json reporter renders as 100%
         // and the HTML reporter as 0% — noise either way. Excluding them assumes

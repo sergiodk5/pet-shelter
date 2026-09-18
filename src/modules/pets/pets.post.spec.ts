@@ -316,8 +316,7 @@ describe("POST /pets rejections", () => {
       .send("{not json");
 
     expect(res.status).toBe(400);
-    // body-parser relays V8's parser message, whose wording changes between Node
-    // versions — assert the shape, not the text.
+    // V8's parser message; the wording changes between Node versions.
     expect(typeof res.body.message).toBe("string");
   });
 

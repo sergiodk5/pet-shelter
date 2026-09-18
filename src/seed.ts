@@ -3,10 +3,6 @@ import { loadConfig, loadDatabaseUrl } from "./config/env";
 import { petsSeeder } from "./modules/pets/pets.seed";
 import { runSeeders } from "./shared/seeding";
 
-/**
- * One line per module, and nothing about what any of them contain. Order
- * matters: a seeder may reference ids an earlier one wrote.
- */
 const seeders = [petsSeeder];
 
 const main = async (): Promise<void> => {

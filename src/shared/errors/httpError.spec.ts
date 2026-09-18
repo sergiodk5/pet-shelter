@@ -10,17 +10,12 @@ import {
   it,
   vi,
 } from "vitest";
+import { closeServer, listen } from "../http.fixtures";
 import { errorHandler } from "../middleware/errorHandler";
 import { BadRequestError, HttpError } from "./httpError";
 
-/** Set by each test; the routes below throw whatever it holds. */
 let thrown: Error;
 
-/**
- * One throwaway app, listening once for the whole file. Building an app per
- * test made `supertest` bind a fresh ephemeral port for every request — see
- * `app.fixtures.ts` for why that is worth avoiding.
- */
 const app = express();
 
 app.get("/sync", () => {
@@ -36,25 +31,11 @@ app.use(errorHandler);
 
 let server: Server;
 
-// Awaited, not fire-and-forget: supertest treats a server whose `address()` is
-// still null as one it owns, and closes it after that request.
-beforeAll(
-  () =>
-    new Promise<void>((resolve) => {
-      server = app.listen(0, () => {
-        resolve();
-      });
-    }),
-);
+beforeAll(async () => {
+  server = await listen(app);
+});
 
-afterAll(
-  () =>
-    new Promise<void>((resolve) => {
-      server.close(() => {
-        resolve();
-      });
-    }),
-);
+afterAll(() => closeServer(server));
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -8,9 +8,7 @@ const allowed = "https://shelter.example";
 const alsoAllowed = "http://localhost:5173";
 
 let testApp: TestApp;
-/** No CORS_ORIGINS - the deny-by-default app. */
 let server: Server;
-/** Both origins above allowed. Shares one database with `server`. */
 let configured: Server;
 
 beforeAll(async () => {

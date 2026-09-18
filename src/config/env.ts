@@ -22,18 +22,12 @@ const parsePort = (raw: string | undefined): number => {
   return port;
 };
 
-/** Comma-separated browser origins. Empty means no cross-origin access at all. */
 const parseCorsOrigins = (raw: string | undefined): string[] =>
   (raw ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter((origin) => origin !== "");
 
-/**
- * Reads configuration from the environment, failing at startup rather than
- * halfway through a request. Takes `env` as an argument so tests can pass their
- * own values instead of mutating `process.env`.
- */
 export const loadConfig = (
   env: NodeJS.ProcessEnv = process.env,
 ): AppConfig => ({
@@ -42,12 +36,6 @@ export const loadConfig = (
   corsOrigins: parseCorsOrigins(env.CORS_ORIGINS),
 });
 
-/**
- * The database URL, needed only by whoever opens the connection: `server.ts` and
- * `drizzle.config.ts`. Deliberately **not** part of `AppConfig` — the app is handed
- * a database rather than a URL, so a spec never needs one and `loadConfig({})`
- * keeps working.
- */
 export const loadDatabaseUrl = (
   env: NodeJS.ProcessEnv = process.env,
 ): string => {

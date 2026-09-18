@@ -35,10 +35,6 @@ export type PetFilters = {
   maxAge?: number;
 };
 
-/**
- * Express's `simple` query parser gives a string for `?k=v` and an array for
- * `?k=a&k=b`. take the last value, and treat a blank one as absent.
- */
 const queryParam = <T extends z.ZodType>(schema: T) =>
   z.preprocess((value) => {
     const raw = Array.isArray(value) ? value.at(-1) : value;
@@ -71,7 +67,6 @@ const serverOwned = z
   .never({ error: "is assigned by the shelter." })
   .optional();
 
-/** A parseable date string, converted to the `Date` the repository stores. */
 const dateString = z
   .string({ error: "must be a date string." })
   .refine((value) => !Number.isNaN(new Date(value).getTime()), {
@@ -93,8 +88,6 @@ const medicalRecordSchema = z.object(
 
 const newPetSchema = z.object(
   {
-    // Declared first on purpose: Zod reports issues in shape order, so a client
-    // sending `id` gets that message rather than an unrelated field error.
     id: serverOwned,
     adoptionDate: serverOwned,
 
@@ -104,12 +97,9 @@ const newPetSchema = z.object(
     age: z
       .int({ error: "must be an integer of 0 or more." })
       .min(0, { error: "must be an integer of 0 or more." }),
-    /** Absent means "arriving now". */
     intakeDate: dateString.default(() => new Date()),
     medicalRecord: medicalRecordSchema,
     photo: nonEmptyString,
-    // Last of the client-supplied fields: shape order decides which error wins,
-    // so adding one here leaves every existing precedence untouched.
     microchipId: z
       .union([z.string(), z.null()], { error: "must be a string or null." })
       .default(null),
@@ -119,9 +109,6 @@ const newPetSchema = z.object(
 
 const replacePetSchema = newPetSchema.extend({
   intakeDate: dateString,
-  // A returned pet needs its adoption cleared. A form sends `adoptionDate: null`
-  // rather than dropping the key, so both null and absent mean "not adopted" —
-  // `null` is already how this API says "no value" (see `microchipId`).
   adoptionDate: dateString.nullish().transform((value) => value ?? undefined),
 });
 

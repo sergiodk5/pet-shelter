@@ -26,11 +26,6 @@ const newPet: NewPet = {
   photo: "p",
 };
 
-/**
- * Driven below HTTP on purpose. Every CHECK constraint is shadowed by Zod, so a
- * non-unique database error cannot be provoked through a request - which is the
- * two-layer design working, and also why this case needs its own spec.
- */
 describe("createPetsRepository error mapping", () => {
   it("turns a duplicate microchip id into a ConflictError", async () => {
     await repository.addPet({ ...newPet, microchipId: "CHIP-A" });
@@ -41,8 +36,6 @@ describe("createPetsRepository error mapping", () => {
   });
 
   it("leaves any other database error alone, so it stays a 500", async () => {
-    // `age: -1` breaks the CHECK constraint. Mislabelling it as a conflict would
-    // report a server fault as a client mistake and hide it from the logs.
     await expect(
       repository.addPet({ ...newPet, age: -1 }),
     ).rejects.not.toBeInstanceOf(ConflictError);

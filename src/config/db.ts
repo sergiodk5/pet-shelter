@@ -11,18 +11,12 @@ export type Db = NodePgDatabase<typeof schema> | PgliteDatabase<typeof schema>;
 
 export type Database = {
   db: Db;
-  /**
-   * Runs a trivial query, so a bad `DATABASE_URL` fails at boot rather than on
-   * the first request. `new Pool()` connects lazily and would otherwise stay
-   * silent until someone hit an endpoint.
-   */
   ping: () => Promise<void>;
   close: () => Promise<void>;
 };
 
 export const createDb = (url: string): Database => {
-  // Without a connection timeout the pool waits forever, which turns an
-  // unreachable host into a hung boot instead of a failed one.
+  // Defaults to 0, meaning an unreachable host hangs the boot forever.
   const pool = new Pool({
     connectionString: url,
     connectionTimeoutMillis: 5000,

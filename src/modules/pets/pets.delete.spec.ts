@@ -16,7 +16,6 @@ beforeAll(async () => {
 
 afterAll(() => close());
 
-/** A fresh pet per test, so nothing depends on which test ran first. */
 const givenAPet = async (): Promise<number> => {
   const res = await request(server).post("/pets").send(validPetBody);
 

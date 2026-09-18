@@ -2,18 +2,8 @@ import type { Db } from "../../config/db";
 import type { Seeder } from "../../shared/seeding";
 import { petsTable } from "./pets.table";
 
-/** The row shape `INSERT` accepts - id and defaults optional. */
 export type PetInsert = typeof petsTable.$inferInsert;
 
-/**
- * The three demo pets the suite asserts against: ids 1-3, Bella available, Milo
- * and Blacky adopted. Inserted into an empty table, so the identity column hands
- * out 1, 2, 3 in order.
- *
- * This file is built, unlike `pets.fixtures.ts`, which `tsconfig.build.json`
- * excludes - so `src/seed.ts` can reach it and the dev database and the test
- * database cannot drift apart.
- */
 export const demoPets: PetInsert[] = [
   {
     name: "Bella",
@@ -56,16 +46,10 @@ export const seedPets = async (db: Db): Promise<void> => {
   await db.insert(petsTable).values(demoPets);
 };
 
-/** Fixed, so `npm run db:seed` produces the same shelter every time. */
 const FAKER_SEED = 20260918;
 const RANDOM_PETS = 50;
 
-/**
- * Every generated date is relative to this rather than to `new Date()`. Seeding
- * the PRNG is not enough on its own: `date.past()` and `date.between({ to: now })`
- * are anchored to the current time, so two runs a millisecond apart produce
- * different timestamps. The cost is that the demo shelter does not age.
- */
+// faker.seed() fixes the PRNG but not the clock; date.past() is relative to now.
 const REFERENCE_DATE = new Date("2026-09-18T00:00:00.000Z");
 
 const VACCINES = [
@@ -76,23 +60,13 @@ const VACCINES = [
   "Leptospirosis",
 ];
 
-/**
- * Faker is imported here rather than at the top of the file on purpose. Every
- * spec file reaches this module for `seedPets`, faker costs ~65ms to load, and
- * no test uses it - loading it up top puts ~0.6s on a 2.4s suite for nothing.
- * `await import()` also keeps a devDependency out of the module's static
- * imports, which is the same reason n8n's modules import their optional
- * services that way.
- */
+// Imported lazily: every spec file reaches this module, and none of them seeds.
 const makeRandomPets = async (count: number): Promise<PetInsert[]> => {
   const { faker } = await import("@faker-js/faker");
 
   faker.seed(FAKER_SEED);
   faker.setDefaultRefDate(REFERENCE_DATE);
 
-  // Four species with a matching breed generator and a plausible weight range.
-  // `faker.animal.type()` has 44 values, which is too varied to demonstrate the
-  // `?species=` filter against.
   const kinds = [
     { species: "Dog", breed: () => faker.animal.dog(), minKg: 2, maxKg: 40 },
     { species: "Cat", breed: () => faker.animal.cat(), minKg: 2, maxKg: 8 },
@@ -132,7 +106,6 @@ const makeRandomPets = async (count: number): Promise<PetInsert[]> => {
         max: kind.maxKg,
         fractionDigits: 1,
       }),
-      // UNIQUE in the database, so a uuid rather than a short code.
       microchipId: faker.datatype.boolean({ probability: 0.6 })
         ? faker.string.uuid()
         : null,
@@ -141,7 +114,6 @@ const makeRandomPets = async (count: number): Promise<PetInsert[]> => {
   });
 };
 
-/** What this module contributes to `npm run db:seed`. */
 export const petsSeeder: Seeder = {
   name: "pets",
   tables: [petsTable],

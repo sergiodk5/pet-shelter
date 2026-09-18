@@ -3,19 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClosableServer } from "./shutdown";
 import { createShutdown } from "./shutdown";
 
-/**
- * A fake `http.Server` that hands back its `close` callback, so a test decides
- * when the in-flight requests finish. `order` records the sequence, which is
- * the part that actually matters: closing the pool before the server has
- * stopped would kill queries that are still running.
- */
 const makeServer = () => {
   const order: string[] = [];
   let finish: ((error?: Error) => void) | undefined;
 
   return {
     order,
-    /** Lets the pending `close()` complete, optionally with an error. */
     settle: (error?: Error): void => finish?.(error),
     server: {
       close: (callback?: (error?: Error) => void) => {
@@ -75,7 +68,6 @@ describe("createShutdown", () => {
     const done = shutdown("SIGTERM");
     settle(new Error("not running"));
 
-    // An unclosed pool keeps the process alive, so this must not be skipped.
     await expect(done).resolves.toBe(false);
     expect(order).toContain("database.close");
   });
@@ -114,7 +106,6 @@ describe("createShutdown when requests do not finish", () => {
 
     expect(order).toContain("closeAllConnections");
 
-    // Destroying the sockets is what lets `close` finally come back.
     settle();
 
     await expect(done).resolves.toBe(false);
@@ -141,8 +132,6 @@ describe("createShutdown when requests do not finish", () => {
 
 describe("createShutdown against a real server", () => {
   it("releases the port", async () => {
-    // The fakes above prove the sequence; this proves the sequence is the one
-    // `http.Server` actually wants.
     const server = createServer();
     await new Promise<void>((resolve) => server.listen(0, resolve));
 
@@ -153,7 +142,6 @@ describe("createShutdown against a real server", () => {
     await expect(shutdown("SIGTERM")).resolves.toBe(true);
     expect(server.listening).toBe(false);
 
-    // Binding the same port again is the proof it was released.
     const reused = createServer();
     await new Promise<void>((resolve) => reused.listen(port, resolve));
     await new Promise<void>((resolve) => reused.close(() => resolve()));

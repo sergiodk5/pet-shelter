@@ -7,16 +7,11 @@ const start = async (): Promise<void> => {
   const config = loadConfig();
   const database = createDb(loadDatabaseUrl());
 
-  // The pool connects lazily, so without this a bad DATABASE_URL would stay
-  // quiet until the first request and then look like a runtime fault.
   try {
     await database.ping();
   } catch (error) {
-    // Nothing is listening yet, but the pool still has to be released or the
-    // process hangs rather than exiting.
+    // Release the pool, or the process hangs instead of exiting.
     await database.close();
-    // Drizzle's own message is "Failed query: select 1", which says nothing
-    // about the database being unreachable. The driver error stays as `cause`.
     throw new Error("Cannot reach the database. Check DATABASE_URL.", {
       cause: error,
     });
@@ -31,7 +26,6 @@ const start = async (): Promise<void> => {
 
   const shutdown = createShutdown({ server, database });
 
-  // SIGTERM is what a container runtime sends; SIGINT is Ctrl-C.
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
       void shutdown(signal).then((clean) => {

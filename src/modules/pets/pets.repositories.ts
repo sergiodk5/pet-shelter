@@ -7,20 +7,9 @@ import type { PetFilters } from "./pets.validators";
 
 type PetRow = typeof petsTable.$inferSelect;
 
-/** Postgres SQLSTATE for a unique constraint breach. */
 const UNIQUE_VIOLATION = "23505";
 
-/**
- * A constraint breach arrives as an opaque driver error, which `errorHandler`
- * would report as a 500 - our fault, for what is a client mistake. Translate the
- * one we can explain and let anything else stay a 500.
- *
- * Duck-typed on `code` rather than `instanceof`: both drivers surface the
- * Postgres wire-protocol fields, and pglite's error class name is minified.
- */
 const rethrow = (error: unknown): never => {
-  // Drizzle wraps driver errors in a DrizzleQueryError and puts the original in
-  // `cause`, so the Postgres fields sit one level down.
   const { code, constraint } = ((error as { cause?: unknown }).cause ??
     error) as { code?: unknown; constraint?: unknown };
 
@@ -31,15 +20,6 @@ const rethrow = (error: unknown): never => {
   throw error;
 };
 
-/**
- * The table is flat; `Pet` nests `medicalRecord`. This is the only place that
- * knows the difference.
- *
- * `adoptionDate` is spread conditionally on purpose: SQL says `null`, `Pet` says
- * *absent*. Assigning `null` would make `adoptionDate !== undefined` true, so an
- * available pet would report as adopted and would serialize as
- * `"adoptionDate": null`.
- */
 const toPet = (row: PetRow): Pet => ({
   id: row.id,
   name: row.name,
@@ -56,7 +36,6 @@ const toPet = (row: PetRow): Pet => ({
   photo: row.photo,
 });
 
-/** `NewPet` is assignable to `PetUpdate`, so one direction covers both writes. */
 const toRow = (pet: PetUpdate) => ({
   name: pet.name,
   species: pet.species,

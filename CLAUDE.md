@@ -41,6 +41,19 @@ only `version`). This is not discoverable by reading the code, and it rules thin
   `export default` fails to load. Decorators _are_ supported by TS 7; they are simply not
   wanted here, so don't claim the toolchain blocks them.
 
+## Comments
+
+**The code explains itself; a comment means the code failed to.** Reach for a better name
+or a smaller function first — refactoring is the fix, a comment is the fallback.
+
+Write one only when the reason cannot live in the code at all: a non-obvious constraint
+where getting it wrong breaks something silently. Then keep it to a line. Anything longer,
+or anything explaining a _decision_, belongs in `docs/architecture.md`, which exists to hold
+rules and their reasons — a comment repeating what that file already says is duplication
+that will drift.
+
+Never write a comment that restates the line below it.
+
 ## Things that look like improvements and are not
 
 Each of these has broken something before, or is protected only by a test.

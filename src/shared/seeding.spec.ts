@@ -14,12 +14,6 @@ import { createTestDb } from "../config/db.fixtures";
 import type { Seeder } from "./seeding";
 import { runSeeders } from "./seeding";
 
-/**
- * Tables defined here rather than imported: `shared/` must not reach into
- * `modules/` (§2.1), and inventing them proves the machinery knows nothing
- * about pets. `owners` is referenced by `toys`, so a single-table-at-a-time
- * TRUNCATE would fail on the foreign key.
- */
 const owners = pgTable("seeding_spec_owners", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   name: text().notNull(),
@@ -37,8 +31,6 @@ let database: Database;
 beforeAll(async () => {
   database = await createTestDb();
 
-  // One statement per execute: the extended query protocol both drivers use
-  // rejects a batch with a syntax error.
   await database.db.execute(sql`
     create table seeding_spec_owners (
       id integer primary key generated always as identity,
@@ -72,7 +64,6 @@ const ownerSeeder = (names: string[]): Seeder => ({
 const toySeeder: Seeder = {
   name: "toys",
   tables: [toys],
-  // Reads what the owner seeder just wrote, which is why order matters.
   run: async (db) => {
     const rows = await db.select().from(owners);
 
@@ -116,8 +107,6 @@ describe("runSeeders", () => {
   });
 
   it("empties every table in one statement, so foreign keys allow it", async () => {
-    // toys references owners. Truncating owners on its own is a foreign key
-    // violation, so this passing is the proof the tables are named together.
     await runSeeders(database.db, [ownerSeeder(["Ada"]), toySeeder]);
 
     await expect(
@@ -126,8 +115,6 @@ describe("runSeeders", () => {
   });
 
   it("runs the seeders in the order they are listed", async () => {
-    // The toy seeder reads the owners table, so it sees nothing if it runs
-    // first. Both orders are valid TRUNCATEs; only one produces toys.
     await runSeeders(database.db, [toySeeder, ownerSeeder(["Ada"])]);
 
     expect(await database.db.select().from(toys)).toHaveLength(0);

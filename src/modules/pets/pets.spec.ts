@@ -64,9 +64,6 @@ describe("GET /pets", () => {
   );
 
   it("returns pets in id order even after one has been updated", async () => {
-    // Postgres rewrites an updated row at the end of the heap, so a SELECT
-    // without ORDER BY returns 2,3,1 here. Writing the pet back unchanged keeps
-    // every other assertion in this file valid.
     const bella = await request(server).get("/pets/1");
     const { id: _id, ...unchanged } = bella.body;
 

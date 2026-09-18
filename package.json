@@ -18,6 +18,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs migrate",
     "db:push": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs push",
+    "db:seed": "npm run build && node --env-file-if-exists=.env dist/seed.js",
     "db:studio": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs studio",
     "commit": "cz",
     "prepare": "husky"

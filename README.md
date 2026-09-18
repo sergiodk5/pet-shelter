@@ -108,180 +108,38 @@ Database commands:
 
 ### Tests
 
-Specs live next to the code as `*.spec.ts` and use [vitest](https://vitest.dev/) with
-[supertest](https://github.com/forwardemail/supertest), which drives the Express app
-directly without starting a server.
+**The suite needs nothing running** — no Docker, no `DATABASE_URL`. Each spec file gets
+its own Postgres in process through [pglite](https://pglite.dev), a WASM build of the real
+thing, with the same migrations applied.
 
 ```bash
-npx vitest run src/modules/pets/pets.spec.ts            # one file
-npx vitest run src/modules/pets/pets.spec.ts -t "rejects id"  # one test by name
+npm test
+npx vitest run src/modules/pets/pets.spec.ts                   # one file
+npx vitest run src/modules/pets/pets.spec.ts -t "rejects id"   # one test by name
 ```
 
-**The suite needs nothing running.** Each spec file gets its own Postgres, in
-process, through [pglite](https://pglite.dev) — a WASM build of the real thing — with
-the same migrations applied. No Docker, no `DATABASE_URL`, about 200ms per file.
-
-Endpoints that write have their own spec file — `pets.post.spec.ts`,
-`pets.put.spec.ts`, `pets.delete.spec.ts`. A write test would otherwise leave rows
-that the `GET` tests assert against; Vitest isolates modules per file, not per
-`describe`, so each file starts from the same seed data. Shared request bodies live
-in `pets.fixtures.ts`.
-
-Run the suite **one process at a time**: `supertest` binds an ephemeral port per
-request, so two concurrent runs cross-talk and fail random tests for no real reason.
+Run it **one process at a time**: `supertest` binds an ephemeral port per request, so two
+concurrent runs cross-talk and fail random tests for no real reason. How the suite is
+organised is in [`docs/architecture.md`](docs/architecture.md) §7.
 
 ---
 
 ## API
 
-All error responses share one shape:
-
-```json
-{ "message": "Human-readable description" }
-```
-
-### `GET /pets`
-
-Lists pets. Every filter is optional, and filters can be combined.
-
-| Query param | Type              | Notes                                                             |
-| ----------- | ----------------- | ----------------------------------------------------------------- |
-| `species`   | string            | Case-insensitive, e.g. `dog`, `Cat`                               |
-| `adopted`   | `true` \| `false` | Case-insensitive. A pet is adopted when it has an `adoptionDate`. |
-| `minAge`    | number            | Inclusive                                                         |
-| `maxAge`    | number            | Inclusive                                                         |
+| Endpoint           | Does                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------- |
+| `GET /pets`        | List pets. Filters: `species`, `adopted`, `minAge`, `maxAge`                                         |
+| `GET /pets/:id`    | Fetch one pet                                                                                        |
+| `POST /pets`       | Register a pet                                                                                       |
+| `PUT /pets/:id`    | Replace a pet — this is also how a pet is adopted or returned, by setting or clearing `adoptionDate` |
+| `DELETE /pets/:id` | Remove a pet permanently                                                                             |
 
 ```bash
 curl "http://localhost:8000/pets?species=cat&adopted=true"
 ```
 
-| Status | When                                                 |
-| ------ | ---------------------------------------------------- |
-| `200`  | Array of pets (empty if nothing matches)             |
-| `400`  | Invalid filter, e.g. `adopted=maybe` or `minAge=abc` |
-
-### `GET /pets/:id`
-
-Fetches one pet.
-
-```bash
-curl http://localhost:8000/pets/1
-```
-
-| Status | When                           |
-| ------ | ------------------------------ |
-| `200`  | The pet                        |
-| `400`  | `id` is not a positive integer |
-| `404`  | No pet with that id            |
-
-### `POST /pets`
-
-Registers a pet. Send `Content-Type: application/json`.
-
-| Field                        | Type             | Required | Notes                                                           |
-| ---------------------------- | ---------------- | -------- | --------------------------------------------------------------- |
-| `name`                       | string           | yes      | Non-empty; surrounding whitespace is trimmed                    |
-| `species`                    | string           | yes      | Non-empty                                                       |
-| `breed`                      | string           | yes      | Non-empty                                                       |
-| `age`                        | integer          | yes      | `0` or more                                                     |
-| `photo`                      | string           | yes      | Non-empty                                                       |
-| `intakeDate`                 | date string      | no       | Defaults to now. Any format `Date` can parse, e.g. `2024-06-15` |
-| `microchipId`                | string \| `null` | no       | Defaults to `null`. Must be unique across the shelter.          |
-| `medicalRecord`              | object           | yes      | See below                                                       |
-| `medicalRecord.vaccinations` | string[]         | yes      | May be empty                                                    |
-| `medicalRecord.weightKg`     | number           | yes      | Greater than `0`                                                |
-
-`id` is assigned by the shelter and `adoptionDate` is set when a pet is adopted —
-sending either is a `400`. Any **other** field not listed above is ignored: it's
-dropped from the request and never stored, and the response tells you what was
-actually saved.
-
-```bash
-curl -i -X POST http://localhost:8000/pets \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Luna","species":"Dog","breed":"Beagle","age":2,"microchipId":null,
-       "medicalRecord":{"vaccinations":["Rabies"],"weightKg":9.2},
-       "photo":"https://picsum.photos/id/240/200/300"}'
-```
-
-| Status | When                                                              |
-| ------ | ----------------------------------------------------------------- |
-| `201`  | The stored pet, with a `Location` header pointing at `/pets/{id}` |
-| `400`  | A field is missing, the wrong type, unknown, or server-owned      |
-| `409`  | `microchipId` already belongs to another pet                      |
-
-The response body is the pet as stored — the same shape `GET /pets/:id` returns —
-so the server-assigned `id` and the normalized `intakeDate` come back without a
-second request. Validation reports the **first** problem it finds, not every
-problem.
-
-### `PUT /pets/:id`
-
-Replaces a pet. **The body is the pet** — every field you send becomes its new state,
-and every optional field you leave out is cleared. Same fields and same rules as
-`POST /pets`, with two differences:
-
-| Field          | Difference from create                                                                          |
-| -------------- | ----------------------------------------------------------------------------------------------- |
-| `intakeDate`   | **Required.** Create defaults it to now; doing that here would silently reset it on every edit. |
-| `adoptionDate` | **Writable.** Send a date to adopt; send `null` or omit it to return the pet to the shelter.    |
-
-`id` is still assigned by the shelter — it belongs in the URL, so sending it in the
-body is a `400`. Unknown fields are ignored, as on create.
-
-```bash
-# adopt a pet
-curl -X PUT http://localhost:8000/pets/1 \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Bella","species":"Dog","breed":"Border Collie","age":3,
-       "intakeDate":"2024-06-15","adoptionDate":"2026-09-17","microchipId":null,
-       "medicalRecord":{"vaccinations":["Rabies"],"weightKg":18.4},
-       "photo":"https://picsum.photos/id/237/200/300"}'
-
-# ...and return it: same body with adoptionDate null
-```
-
-| Status | When                                                      |
-| ------ | --------------------------------------------------------- |
-| `200`  | The replaced pet                                          |
-| `400`  | `id` is not a positive integer, or the body breaks a rule |
-| `404`  | No pet with that id                                       |
-| `409`  | `microchipId` already belongs to another pet              |
-
-The body is validated **before** the id is looked up, so a bad body on a URL that
-doesn't exist reports the body problem, not a `404`.
-
-Because a client normally loads a pet, edits it and sends it back, the round trip is
-`GET /pets/:id` → change what you want → `PUT`. Sending a field you didn't mean to
-change is harmless; _omitting_ one is not.
-
-### `DELETE /pets/:id`
-
-Removes a pet permanently.
-
-```bash
-curl -i -X DELETE http://localhost:8000/pets/1
-```
-
-| Status | When                           |
-| ------ | ------------------------------ |
-| `204`  | Removed. No response body.     |
-| `400`  | `id` is not a positive integer |
-| `404`  | No pet with that id            |
-
-Ids are **never reused**. Delete pet `4` and the next pet created is `5`, so a stored
-link can't quietly start pointing at a different animal. That is the database's
-identity column, not bookkeeping in the application.
-
-### Other errors
-
-| Status | When                                                                     |
-| ------ | ------------------------------------------------------------------------ |
-| `400`  | Request body is not valid JSON                                           |
-| `404`  | Unknown route                                                            |
-| `409`  | A value that must be unique is already taken                             |
-| `413`  | Request body is over the 100kb limit                                     |
-| `500`  | Unexpected server error. Details are logged server-side, never returned. |
+Every error response is `{ "message": "..." }`. Full request and response shapes,
+field rules and status codes: **[`docs/api.md`](docs/api.md)**.
 
 ---
 
@@ -307,36 +165,24 @@ Each module owns its own demo data: `pets.seed.ts` exports a `petsSeeder`, and
 `src/seed.ts` is a list of those. Adding a module adds one line there and nothing
 else.
 
-The reasoning behind this layout, and the conventions for adding a new module, are
-in [`docs/architecture.md`](docs/architecture.md).
+## Documentation
+
+| Doc                                                            | What is in it                                                       |
+| -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| [`docs/api.md`](docs/api.md)                                   | Every endpoint: fields, rules, status codes, examples               |
+| [`docs/architecture.md`](docs/architecture.md)                 | How the code is organised and **why** — read before adding a module |
+| [`docs/production-readiness.md`](docs/production-readiness.md) | What has to be true before real users, and what triggers each piece |
 
 ---
 
-## Commits
+## Contributing
 
-Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) —
+`npm run commit` gives you a guided prompt. Git hooks lint, format and type-check every
+commit and run the tests before every push, so there is nothing to remember.
 
-```
-feat: add adoption requests
-fix(pets): reject non-numeric ids
-docs: document the pets endpoints
-```
-
-Git hooks check every commit and push:
-
-| Hook         | Check                                                                                                                                                                        |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pre-commit` | lint-staged runs oxlint (with fixes) and Prettier on the staged files, then `tsc --noEmit` checks types. The commit is blocked on lint errors, lint warnings or type errors. |
-| `commit-msg` | commitlint. The commit is blocked if the message doesn't follow the convention.                                                                                              |
-| `pre-push`   | `npm test`. The push is blocked if any test fails.                                                                                                                           |
-
-Run `npm run commit` for a guided prompt, or write the message yourself with
-`git commit`. The hooks run either way.
-
-GitHub Actions also runs `format:check`, `lint`, `typecheck`, `db:check`, `test` and
-`build` on every push to `master` and on pull requests
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). No database is started for it —
-the suite brings its own.
+Conventions and the reasoning behind them live in
+[`docs/architecture.md`](docs/architecture.md).
 
 ---
 

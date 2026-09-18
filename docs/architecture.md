@@ -243,6 +243,12 @@ them checked at all; an undeclared key would be stripped before anything could o
 hand-rolling, as this section used to claim: n8n returns `error.errors[0]` with Zod's
 full array available. It's a choice, and it's the common one.
 
+> **Revisit trigger: a documented public API.** Stripping is right for an internal
+> endpoint, where an unknown key is junk the client does not care about. n8n splits on
+> exactly this line — only ~12 of its 308 DTOs are `strict`, and those are the public
+> ones, where silently ignoring a key a caller wrote is a support ticket. If this API is
+> ever published with a contract, that is the moment to switch.
+
 #### The entity is the source of truth, not the schema
 
 `NewPet` stays `Omit<Pet, "id" | "adoptionDate">`, hand-written in `pets.types.ts`.
@@ -389,6 +395,11 @@ fault. The translation is duck-typed on the SQLSTATE code rather than `instanceo
 Drizzle wraps driver errors in a `DrizzleQueryError` and puts the original in `cause`, and
 pglite minifies its error class name. Translate the ones you can explain; rethrow the rest.
 
+**Column types are checked against the driver, not assumed.** `numeric` round-trips
+through node-postgres as a **string**, not a number, which would have made `weightKg` a
+string on every read; `doublePrecision` is what the weight column actually uses. Probe a
+type before adding a column.
+
 **Validation is two layers, on purpose.** Zod rejects bad input at the edge with a readable
 message; the CHECK constraints (`age >= 0`, `weight_kg > 0`) are the backstop for anything
 that reaches the database another way. Zod shadows them completely for HTTP traffic, which
@@ -446,6 +457,12 @@ Auth is two things wearing one name, and they live in different places.
 **Authentication and authorization stay separate.** `requireAuth` answers _who are
 you_; `requireRole("admin")` answers _may you_. Merging them means re-checking
 identity inside permission logic.
+
+**Permissions name the action, on the route.** `requireScope("pet:create")` as
+middleware in `pets.routes.ts`, not a check buried in the handler — the guard belongs
+next to the route it guards, where reading the router tells you what is protected. This
+is the Express shape of n8n's `@GlobalScope('tag:create')` decorator, and n8n keeps its
+authentication and authorization separate the same way.
 
 **Default-deny.** Mount public routes first, then `app.use(requireAuth)` before the
 protected ones. A new route should be protected because someone forgot to do
@@ -585,6 +602,16 @@ Recorded so they're decisions rather than discoveries:
   needs a real Postgres in the loop before it can be trusted.
 - **Logging is `console`.** Fine for one process on one machine; not structured, not
   levelled, not correlated to a request.
+- **An intermittent test failure, seen three times and never reproduced on demand.** One of
+  152 fails, a different run each time; the only sighting identified was
+  `errorHandler.spec.ts > "works the same when thrown from an async handler"` under
+  `test:cov`. **The pattern is contention**: every occurrence was a run with another Node
+  process immediately before or beside it (a `db:seed` rebuild, coverage instrumentation, a
+  `typecheck`). Never reproduced in isolation — green on 8 consecutive full runs, 6
+  isolated runs of that spec with coverage, and 3 full coverage runs. Consistent with the
+  supertest ephemeral-port cross-talk described at the end of §7, which needs the whole
+  suite in flight. **Capture the assertion text when it next appears** — that is the one
+  piece missing, and grepping for `Failed Tests` in a loop is how to get it.
 
 **Closed since this list was written.** The old entry here was read-then-write:
 `updatePet` and `removePet` each did a `findIndex` and then mutated the array, which is a
@@ -623,6 +650,11 @@ until the first request and then look like a runtime fault — and installs the 
 reason: stop the server, let in-flight requests finish, then close the pool, because an
 unclosed pool keeps the process alive. It takes a narrow structural type for the server, so
 its spec drives it with a fake and binds no port.
+
+Do **not** add a `server.closeIdleConnections()` call before `close()`. It looks necessary —
+idle keep-alive sockets do hold a server open — but `http.Server.close` already calls it
+through `httpServerPreClose`, read out of Node 24's own source, and a held keep-alive
+connection delays shutdown by 0.03s either way.
 
 ---
 
@@ -715,9 +747,17 @@ hook rather than pre-commit, so commits stay fast and a failing test blocks the 
 [pglite](https://pglite.dev) — Postgres compiled to WASM — applies the same migrations the
 real database gets, and returns the same `Database` shape. No Docker, no CI service
 container, and no shared state: each spec file gets its own instance, at about 200ms each.
-The comparison that settled it is in `docs/database-migration-plan.md`; the short version
-is that a shared real Postgres forces `maxWorkers: 1`, and this preserves the per-file
-isolation the suite already depended on.
+
+| Option                | Local setup         | CI                | Speed               | Fidelity                   |
+| --------------------- | ------------------- | ----------------- | ------------------- | -------------------------- |
+| **pglite in-process** | none                | none              | fast, no I/O        | real Postgres (WASM build) |
+| Docker Compose        | `docker compose up` | service container | network round trips | identical                  |
+| Testcontainers        | Docker daemon       | Docker-in-Docker  | slow start          | identical                  |
+
+The deciding evidence was a project that shares one real Postgres across its suite and
+therefore has to set `maxWorkers: 1`. pglite preserves the per-file isolation this suite
+already depended on, and migrations are shared with the real database, so the two cannot
+drift.
 
 Its one real limitation is that it is single-connection, so pooling and concurrency go
 untested (§5, Known gaps).

@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check && drizzle-kit generate && test -z \"$(git status --porcelain migrations)\"",
     "db:migrate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs migrate",
     "db:push": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs push",
     "db:seed": "npm run build && node --env-file-if-exists=.env dist/seed.js",

@@ -43,6 +43,16 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Two guards over the migration folder. `drizzle-kit check` looks for a
+      # journal that two branches have both written to; `drizzle-kit generate`
+      # followed by a clean-tree assertion catches a table definition that was
+      # edited without generating the migration for it. Neither command opens a
+      # connection, so DATABASE_URL is not needed.
+      - name: Check migrations
+        run: npm run db:check
+
+      # No Postgres service container: the suite runs Postgres in-process via
+      # pglite, and createTestDb applies the migrations itself, per spec file.
       - name: Test
         run: npm test
 

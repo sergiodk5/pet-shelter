@@ -65,9 +65,16 @@ the cause rather than bypassing it with `--no-verify`.
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes to `master` and on pull requests: `npm ci`, then
-`format:check`, `lint`, `typecheck`, `test` and `build`, on the Node version in `.nvmrc`. It
-sets `HUSKY=0` so `npm ci` doesn't install git hooks on the runner. CI runs the same npm
-scripts as local development, so a change that passes them locally should pass CI.
+`format:check`, `lint`, `typecheck`, `db:check`, `test` and `build`, on the Node version in
+`.nvmrc`. It sets `HUSKY=0` so `npm ci` doesn't install git hooks on the runner. CI runs the
+same npm scripts as local development, so a change that passes them locally should pass CI.
+
+**There is no Postgres service container**, and there doesn't need to be: the suite runs
+Postgres in-process via pglite and `createTestDb` applies the migrations itself, per spec
+file. `npm run db:check` is the guard over `migrations/` — `drizzle-kit check` for a journal
+two branches have both written to, then `drizzle-kit generate` plus a clean-tree assertion
+for a table definition edited without generating its migration. Neither command opens a
+connection, so no `DATABASE_URL` either. Run it locally before pushing a schema change.
 
 ## Architecture
 

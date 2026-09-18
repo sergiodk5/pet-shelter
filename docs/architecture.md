@@ -733,6 +733,26 @@ right order.
 Within a write spec, assert membership (`toContain`), never an exact array: earlier
 tests in the same file have already added rows.
 
+**What is not tested, and why.** The deciding question is: _if this breaks, is the
+failure loud, and who does it reach?_
+
+| Not tested                                         | Because                                                                                                                                                                                |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Packages — Express, Drizzle, Zod, `pg`, faker      | Their behaviour is their maintainers' problem. Our **configuration** of them is not: a CHECK constraint, a Zod schema and the CORS allowlist are project decisions and are all tested. |
+| `src/server.ts`, `src/seed.ts`, `src/**/*.seed.ts` | A command and its demo data. A break is loud — `npm run db:seed` fails on the spot — and reaches one developer for one minute. All three are excluded from coverage.                   |
+
+`shared/seeding.ts` is deliberately **not** in that list, and the line is worth stating
+because it is thin. It issues SQL the application never issues — one multi-table
+`TRUNCATE … RESTART IDENTITY CASCADE` — and its failure mode arrives _later_, when a second
+module's table references `pets` and somebody has since "simplified" it into a loop. The
+data a seeder produces is content; the machinery that empties tables is a decision.
+
+n8n draws the same line by example: `seedInstance.mjs` generates ~500 varied workflows
+through the public API and has no tests, while `seedHistory.mjs` — which writes SQLite
+directly, backdates timestamps by hand and leans on foreign-key cascades — has eight. The
+Laravel testing skill states the general rule: _"Leave framework behavior to framework
+tests. Testing project configuration is not testing the framework."_
+
 **Almost everything here is an integration test** — they drive helmet,
 `express.json`, the router, the validator, the repository and now Postgres, with nothing
 mocked. That's deliberate: status codes, the `Location` header and the error envelope _are_

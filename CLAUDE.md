@@ -162,6 +162,14 @@ for it. Read it before adding a module or moving code. The load-bearing points:
 - **Adoption status is derived, not stored**: a pet is adopted iff it has an
   `adoptionDate` (`isAdopted` in the pets controller). There is no `adopted` field; the
   `?adopted=` query filter is computed from it.
+- **What is not tested.** Packages (Express, Drizzle, Zod, `pg`, faker) — but our
+  _configuration_ of them is: CHECK constraints, Zod schemas and the CORS allowlist are
+  project decisions and are tested. Dev-only commands and their demo data — `server.ts`,
+  `seed.ts`, `**/*.seed.ts` — are excluded from coverage, because a break there is loud and
+  reaches one developer. `shared/seeding.ts` is **not** excluded: it issues SQL the app
+  never issues, and its failure arrives later, when a second module's table references
+  `pets`. The question to ask is _if this breaks, is it loud, and who does it reach?_
+  Read `docs/architecture.md` §7 before excluding anything else.
 - **Tests** are colocated `*.spec.ts` files run by vitest, and **need nothing running**:
   `createTestDb()` starts pglite (real Postgres, in process) and applies the migrations, per
   spec file. HTTP behaviour is tested with supertest against `app` (no port bound). Middleware is tested by mounting it on a

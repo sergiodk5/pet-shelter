@@ -458,6 +458,11 @@ Auth is two things wearing one name, and they live in different places.
 you_; `requireRole("admin")` answers _may you_. Merging them means re-checking
 identity inside permission logic.
 
+**Tools are chosen, not yet installed** (2026-09-18): Argon2id via `@node-rs/argon2`, an
+opaque session token in a Postgres `sessions` table rather than a JWT, and `jose` only where
+something must be verifiable without a database lookup. `docs/production-readiness.md` §4
+carries the reasoning and what was rejected.
+
 **Permissions name the action, on the route.** `requireScope("pet:create")` as
 middleware in `pets.routes.ts`, not a check buried in the handler — the guard belongs
 next to the route it guards, where reading the router tells you what is protected. This

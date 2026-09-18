@@ -67,14 +67,31 @@ Structure is in [`architecture.md` §3](architecture.md#3-auth): `modules/auth/`
 `shared/middleware/requireAuth.ts` for the guard, default-deny, authentication and authorization
 kept separate.
 
-| Item                              | Status | What to do                                                                                                                                                                                                                                                                         |
-| --------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Object-level authorization        | 🔜     | **#1 on the OWASP API Security Top 10** (Broken Object Level Authorization). A valid token proves who someone is, not that `GET /adoption-requests/17` is theirs. Every read and write of an adoption request checks ownership (`request.userId === req.user.id`) or a staff role. |
-| JWT                               | 🔜     | `jose` or `jsonwebtoken`. **Pin the algorithm on verify** (`algorithms: ["HS256"]`) so tokens signed with a different algorithm or `none` are rejected. Short-lived access tokens; rotate refresh tokens; no personal data in the payload (it's only encoded, not encrypted).      |
-| Password hashing                  | 🔜     | `argon2` with Argon2id (OWASP's first choice).                                                                                                                                                                                                                                     |
-| Cookies (refresh token / session) | 🔜     | `secure`, `httpOnly`, `sameSite`, plus scoped `domain`, `path` and `expires`. Don't use a library's default cookie name, which fingerprints the server the same way `X-Powered-By` does.                                                                                           |
-| CSRF                              | 🔜     | Only needed where auth travels in a cookie. A token in the `Authorization` header isn't sent automatically by the browser; a refresh-token cookie is, so protect the refresh endpoint.                                                                                             |
-| Secrets at startup                | 🔜     | `src/config/env.ts` already validates and throws at boot (hand-rolled; `loadDatabaseUrl` is required). Extend it to refuse to start if `JWT_SECRET` is missing or too short. `.env` is already gitignored.                                                                         |
+**Packages settled 2026-09-18, nothing installed yet:** `pino` + `pino-http` for logging,
+`@node-rs/argon2` for hashing, `jose` if and when something has to be verifiable without a
+database lookup. Sessions live in Postgres — see the two rows below.
+
+**Not `better-auth`**, despite it fitting the stack exactly (its peers name
+`drizzle-orm ^0.45.2`, our version, plus `pg ^8` and Zod 4). It owns every route under its
+mount path, so our conventions — validators throw, `errorHandler` formats, every error body
+is `ErrorResponse` — would not apply there, and it has to be mounted **before**
+`express.json()` because body parsers consume the stream. Two conventions in one app, at the
+most security-sensitive seam. Revisit if OAuth, magic links or 2FA arrive, which is the work
+it genuinely saves.
+
+**Do not follow a 2024 tutorial here.** `lucia` was deprecated in June 2025 and now points
+at a migration guide; `oslo`, its primitive library, is deprecated too. `passport` still has
+7.4M weekly downloads but last shipped in January 2025.
+
+| Item                              | Status | What to do                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Object-level authorization        | 🔜     | **#1 on the OWASP API Security Top 10** (Broken Object Level Authorization). A valid token proves who someone is, not that `GET /adoption-requests/17` is theirs. Every read and write of an adoption request checks ownership (`request.userId === req.user.id`) or a staff role.                                                                                                |
+| Sessions, not JWT                 | 🔜     | An opaque token from `crypto.randomBytes(32)`, stored hashed in a `sessions` table. **This replaces the earlier plan to use JWTs.** A JWT's whole advantage is validating without a database lookup — but every request here already hits Postgres, so statelessness buys nothing while costing instant revocation, and the algorithm-confusion class of bug disappears entirely. |
+| `jose`                            | 🔜     | Only where something must be verifiable **without** a lookup, or by someone else: password-reset and email-verification links that expire on their own, or external identity. Zero dependencies, built on WebCrypto, and it refuses to verify without naming the expected algorithm — which is what stops `alg: none` and RS256/HS256 confusion. Not needed for session auth.     |
+| Password hashing                  | 🔜     | Argon2id (OWASP's first choice) via **`@node-rs/argon2`** rather than `argon2`: same algorithm, but it ships prebuilt binaries for 13 platforms including `darwin-arm64` and `linux-x64-gnu`, where `argon2` pulls `node-gyp-build` and compiles on every machine and CI runner.                                                                                                  |
+| Cookies (refresh token / session) | 🔜     | `secure`, `httpOnly`, `sameSite`, plus scoped `domain`, `path` and `expires`. Don't use a library's default cookie name, which fingerprints the server the same way `X-Powered-By` does.                                                                                                                                                                                          |
+| CSRF                              | 🔜     | Only needed where auth travels in a cookie. A token in the `Authorization` header isn't sent automatically by the browser; a refresh-token cookie is, so protect the refresh endpoint.                                                                                                                                                                                            |
+| Secrets at startup                | 🔜     | `src/config/env.ts` already validates and throws at boot (hand-rolled; `loadDatabaseUrl` is required). Extend it for whatever secret the session cookie needs. `.env` is already gitignored.                                                                                                                                                                                      |
 
 ---
 
@@ -212,7 +229,7 @@ CI with a migration-drift guard, and graceful shutdown with a startup connectivi
 | Trigger                       | Then do                                                                                                                                                                                                                 |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Starting auth**             | pino + pino-http **first** (§5), with redaction of `authorization`, `cookie` and password fields — retrofitting redaction after tokens are already in the logs is the bad version                                       |
-| **The auth feature**          | Argon2id → JWT with a pinned algorithm → object-level authorization → brute-force limits and one generic credential error → cookie flags and CSRF, only if refresh lives in a cookie                                    |
+| **The auth feature**          | Argon2id → database sessions → object-level authorization → brute-force limits and one generic credential error → cookie flags and CSRF, since the session travels in a cookie                                          |
 | **A browser client**          | Set `CORS_ORIGINS` (one line in `.env`, no code change). Swagger UI from the Zod schemas, with a CSP exception for `/docs`                                                                                              |
 | **The first real deployment** | Reverse proxy with TLS → `trust proxy` set to the exact proxy count → global rate limit → `NODE_ENV=production` → restart policy → compression at the proxy                                                             |
 | **A second instance**         | Redis for shared state (rate-limit counters, sessions are per-process today), then clustering                                                                                                                           |

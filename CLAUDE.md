@@ -153,6 +153,12 @@ for it. Read it before adding a module or moving code. The load-bearing points:
     Duck-type on the SQLSTATE `code`, which sits in `error.cause` — Drizzle wraps driver
     errors, and `instanceof` fails because pglite minifies its error class.
   - `numeric` comes back from node-postgres as a **string**; use `doublePrecision`.
+  - **Demo data belongs to its module.** Each module exports a `Seeder` from
+    `<name>.seed.ts` (name, tables, `run(db)` → row count); `src/seed.ts` is a list of
+    them and knows nothing about any of them. `shared/seeding.ts` truncates every seeder's
+    tables in one statement, then runs them in order. `pets.seed.ts` loads faker with
+    `await import()` because every spec file reaches that module for `seedPets` — a static
+    import would cost ~0.6s a run for something no test uses.
 - **Adoption status is derived, not stored**: a pet is adopted iff it has an
   `adoptionDate` (`isAdopted` in the pets controller). There is no `adopted` field; the
   `?adopted=` query filter is computed from it.

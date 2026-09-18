@@ -291,16 +291,21 @@ identity column, not bookkeeping in the application.
 src/
 ├─ modules/            # one folder per business area
 │  └─ pets/            # routes, controllers, validators, middleware,
-│                      # repositories, the Drizzle table, types
-├─ shared/             # cross-cutting code: error handling, shared types, shutdown
+│                      # repositories, the Drizzle table, its seed data, types
+├─ shared/             # cross-cutting code: error handling, shared types,
+│                      # shutdown, the seeding runner
 ├─ config/             # validated env vars, and the database connection
 ├─ app.ts              # createApp(config, db): builds the app, never listens
-├─ seed.ts             # npm run db:seed
+├─ seed.ts             # npm run db:seed — a list of module seeders, nothing else
 └─ server.ts           # checks the database, starts the server, handles signals
 
 migrations/            # generated SQL, committed
 compose.yml            # Postgres + Adminer for local development
 ```
+
+Each module owns its own demo data: `pets.seed.ts` exports a `petsSeeder`, and
+`src/seed.ts` is a list of those. Adding a module adds one line there and nothing
+else.
 
 The reasoning behind this layout, and the conventions for adding a new module, are
 in [`docs/architecture.md`](docs/architecture.md).
@@ -328,8 +333,10 @@ Git hooks check every commit and push:
 Run `npm run commit` for a guided prompt, or write the message yourself with
 `git commit`. The hooks run either way.
 
-GitHub Actions also runs `format:check`, `lint`, `typecheck`, `test` and `build` on every push to
-`master` and on pull requests ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+GitHub Actions also runs `format:check`, `lint`, `typecheck`, `db:check`, `test` and
+`build` on every push to `master` and on pull requests
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). No database is started for it —
+the suite brings its own.
 
 ---
 

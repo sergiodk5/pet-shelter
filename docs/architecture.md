@@ -401,6 +401,33 @@ guard: it runs `drizzle-kit check` for a journal two branches have both written 
 regenerates and asserts the tree is clean, which catches a table edited without its
 migration. CI runs it.
 
+**Demo data belongs to the module, not to the seed script.** Each module exports a
+`Seeder` — a name, the tables it owns, and a `run(db)` returning the row count — and
+`src/seed.ts` is a list of them and nothing else:
+
+```ts
+const seeders = [petsSeeder];
+```
+
+`shared/seeding.ts` owns the machinery: it empties every seeder's tables in **one**
+`TRUNCATE … RESTART IDENTITY CASCADE`, so a foreign key between two modules does not
+dictate the order they are emptied in, then runs the seeders **in the order listed**,
+because a later module may reference ids an earlier one wrote.
+
+This is the shape both references use. n8n keeps its seeder inside the module
+(`modules/dynamic-credentials.ee/services/n8n-resolver-seeder.service.ts`) and has the
+module's own `init()` call it; NestJS has no seeding feature at all, and the community
+answer is a provider in the feature module plus a thin
+`NestFactory.createApplicationContext` script. Neither puts one module's demo data in a
+shared script. We have no container, so the list in `seed.ts` is our composition root —
+the same role `app.ts` plays for routers.
+
+**`pets.seed.ts` loads faker through `await import()`**, not a top-level import. Every
+spec file reaches this module for `seedPets`, faker costs ~65ms to load, and no test uses
+it — a static import would put ~0.6s on a 2.4s suite for nothing. Verified: importing the
+compiled module leaves `@faker-js/faker` out of `require.cache`. n8n's modules defer their
+optional services the same way.
+
 **Storage is flatter than the entity, for now.** `weight_kg` and `vaccinations` are columns
 on `pets` while `Pet` keeps them inside `medicalRecord`, so the wrapper is already there
 when they move to a history table. `microchipId` was pulled **out** of `medicalRecord` for
@@ -500,7 +527,9 @@ src/
 │  ├─ types/
 │  │  └─ api.types.ts
 │  ├─ shutdown.ts
-│  └─ shutdown.spec.ts
+│  ├─ shutdown.spec.ts
+│  ├─ seeding.ts
+│  └─ seeding.spec.ts
 ├─ config/
 │  ├─ env.ts
 │  ├─ env.spec.ts
@@ -612,8 +641,10 @@ its spec drives it with a fake and binds no port.
 8. Storing anything? `<name>.table.ts` beside the repository, add it to the `schema`
    array in `drizzle.config.ts` and to `schema` in `config/db.ts`, then
    `npm run db:generate` and commit the SQL (§2.7).
-9. Add `<name>.spec.ts` beside the routes and drive them with supertest against an app
-   from `createTestApp()`.
+9. Demo data? Export a `Seeder` from `<name>.seed.ts` and add it to the list in
+   `src/seed.ts`. Nothing about the module goes in that file.
+10. Add `<name>.spec.ts` beside the routes and drive them with supertest against an app
+    from `createTestApp()`.
 
 ---
 

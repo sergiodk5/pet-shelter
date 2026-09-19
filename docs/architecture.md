@@ -15,6 +15,7 @@ scaffold disagree, the scaffold wins unless there's a concrete reason otherwise.
 src/
 ├─ modules/                       # business components — one folder per resource
 │  ├─ pets/
+│  │  ├─ pets.module.ts           # builds repository → controller → router; exports petRouter
 │  │  ├─ pets.routes.ts           # path → middleware → controller
 │  │  ├─ pets.controllers.ts      # HTTP in, HTTP out. No business rules.
 │  │  ├─ pets.services.ts         # business logic (added when logic outgrows the controller)
@@ -42,8 +43,10 @@ src/
 │     └─ tokens.ts
 ├─ config/
 │  ├─ env.ts                      # validated env vars, fail fast at boot
-│  └─ db.ts                       # the pool, the Db type, and ping()
+│  ├─ db.ts                       # createDb(), the Db type, and ping()
+│  └─ database.ts                 # the one connection, created on import
 ├─ app.ts                         # wiring only: helmet, cors, json, routes, error handler
+├─ test.setup.ts                  # Vitest setup: swaps config/database for pglite
 ├─ seed.ts                        # npm run db:seed
 └─ server.ts                      # ping, listen(), signal handlers
 ```
@@ -327,33 +330,53 @@ handles them once — last value wins, blank counts as absent — and each filte
 only its own rule. `?species=` returning every pet rather than none is tested; it used
 to be untested behaviour that a one-character change could invert.
 
-### 2.6 Configuration and the database are injected, not imported
+### 2.6 Configuration is injected; the database is owned by the modules
 
 `src/config/env.ts` reads and validates the environment **once**, at startup, and
-`createApp(config, db)` receives the result. Nothing under `modules/` or `shared/` reads
+`createApp(config)` receives the result. Nothing under `modules/` or `shared/` reads
 `process.env` directly.
 
 Two things follow. Invalid settings stop the process at boot instead of failing inside a
 request, and a spec can build an app with any configuration — `createApp(loadConfig({
-CORS_ORIGINS: "https://ok.example" }), db)` — without stubbing env vars or resetting
-modules.
+CORS_ORIGINS: "https://ok.example" }))` — without stubbing env vars or resetting modules.
 
 CORS is the first user: an empty allowlist means no cross-origin browser access at all, and
 the origins go to `cors` as an array so an unlisted origin gets no header rather than a 500.
 
-The database arrives the same way, and the chain is explicit rather than container-managed:
+**The database is not injected.** `config/database.ts` creates the one connection when it is
+first imported, and each module wires itself in its `<name>.module.ts`:
 
+```ts
+const repository = new PetsRepository(database.db);
+const controller = new PetsController(repository);
+
+export const petRouter = createPetRouter(controller);
 ```
-createApp(config, db)
-  └─ createPetRouter(createPetsControllers(createPetsRepository(db)))
-```
 
-Three consequences worth stating, because each one was the point:
+`app.ts` mounts `petRouter` and knows nothing else about the module — not its repository,
+its controller or the database. This replaced `createApp(config, db)` and the nested
+`createPetRouter(createPetsControllers(createPetsRepository(db)))` it had to spell out; a
+DI container was tried and rejected before it.
 
-- **`DATABASE_URL` is deliberately not part of `AppConfig`.** The app is handed a
-  database, not a URL, so a spec never needs one. `loadDatabaseUrl()` sits beside
-  `loadConfig()` and is called only by whoever opens a connection — `server.ts`,
-  `seed.ts` and `drizzle.config.ts`.
+What keeps it testable: **only `<name>.module.ts` touches the connection.** Classes take
+their collaborators through the constructor, so `pets.repositories.spec.ts` still does
+`new PetsRepository(testDb)` with nothing mocked.
+
+Consequences worth stating:
+
+- **Importing `app.ts` requires `DATABASE_URL`.** `pg.Pool` is lazy, so creating it opens
+  nothing — `server.ts` still pings before `listen()` — but a missing URL now throws while
+  modules load, before `start()`'s own error message can run. Same message, same exit code.
+- **Specs swap the module for pglite.** `src/test.setup.ts` replaces `config/database` with
+  `createTestDb()` through `vi.mock`, so no spec needs a URL. Each spec file still gets its
+  own database because Vitest isolates each file's module registry — **never set
+  `isolate: false`**, which Vitest's own report suggests for speed: every file would share
+  one database, and 4 files fail.
+- **Controller handlers are arrow fields, not methods.** The router passes them to Express
+  as bare references (`router.get("/", controller.getPets)`), which drops `this` for a
+  method; 33 tests fail on the first one converted.
+- **`DATABASE_URL` is deliberately not part of `AppConfig`.** `loadDatabaseUrl()` is called
+  by `config/database.ts` and `drizzle.config.ts` only.
 - **`Db` is a union of both drivers** (`NodePgDatabase | PgliteDatabase`), which is also
   what a Drizzle transaction handle satisfies. Transactions will therefore not need
   another refactor when adoption requests arrive.
@@ -524,6 +547,7 @@ The migration to modules is done. This is what's on disk:
 src/
 ├─ modules/
 │  └─ pets/
+│     ├─ pets.module.ts
 │     ├─ pets.routes.ts
 │     ├─ pets.controllers.ts
 │     ├─ pets.validators.ts
@@ -556,10 +580,12 @@ src/
 │  ├─ env.ts
 │  ├─ env.spec.ts
 │  ├─ db.ts
-│  └─ db.fixtures.ts
+│  ├─ db.fixtures.ts
+│  └─ database.ts
 ├─ app.ts
 ├─ app.spec.ts
 ├─ app.fixtures.ts
+├─ test.setup.ts
 ├─ seed.ts
 └─ server.ts
 ```
@@ -568,7 +594,7 @@ Plus `migrations/` and `drizzle.config.ts` at the root, and `compose.yml` for a 
 Postgres.
 
 `app.ts` is pure wiring — cors, json, the pets router, then the two terminal handlers
-in that order. Adding a module means adding one `app.use` line.
+in that order. Adding a module means adding one import and one `app.use` line.
 
 Deliberately absent, per §1. Add each at the moment it's needed, not before:
 
@@ -634,10 +660,9 @@ lands it becomes a `WHERE` clause and moves **down** into the repository, not
 sideways into a service.
 
 The `app.ts` / `server.ts` split landed ahead of this. `app.ts` exports
-`createApp(config, db)`, which builds the app _without_ listening, so a test can build one
+`createApp(config)`, which builds the app _without_ listening, so a test can build one
 per case and drive it on an ephemeral port — which is what makes adding auth safe rather
-than hopeful. The database moving behind the same seam cost no spec any change beyond
-awaiting the app.
+than hopeful. The database reaches it through the modules, not as an argument (§2.6).
 
 `server.ts` stays wiring, and that is load-bearing rather than aesthetic: it is excluded
 from coverage, so logic placed there goes unmeasured. It now pings the database before
@@ -661,7 +686,9 @@ connection delays shutdown by 0.03s either way.
 2. Types in `<name>.types.ts`. Promote to `shared/types/` only if §2.3's test passes.
 3. Input handling: guard → `<name>.middleware.ts`; produces a value →
    `<name>.validators.ts`.
-4. Mount in `app.ts`: `app.use("/<name>", <name>Router)`.
+4. Wire it in `<name>.module.ts` — repository from `database.db`, then controller, then
+   `export const <name>Router` — and mount that in `app.ts`: `app.use("/<name>", <name>Router)`.
+   Controller handlers are arrow fields (§2.6).
 5. Check the route is behind `requireAuth` unless it's deliberately public (§3).
 6. Errors: `throw` an `HttpError` — never format a response by hand. The shared
    handler owns status and body (§2.4).
@@ -744,6 +771,7 @@ hook rather than pre-commit, so commits stay fast and a failing test blocks the 
 [pglite](https://pglite.dev) — Postgres compiled to WASM — applies the same migrations the
 real database gets, and returns the same `Database` shape. No Docker, no CI service
 container, and no shared state: each spec file gets its own instance, at about 200ms each.
+The app reaches it because `src/test.setup.ts` swaps `config/database` for it (§2.6).
 
 | Option                | Local setup         | CI                | Speed               | Fidelity                   |
 | --------------------- | ------------------- | ----------------- | ------------------- | -------------------------- |
@@ -777,6 +805,7 @@ failure loud, and who does it reach?_
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Packages — Express, Drizzle, Zod, `pg`, faker      | Their behaviour is their maintainers' problem. Our **configuration** of them is not: a CHECK constraint, a Zod schema and the CORS allowlist are project decisions and are all tested. |
 | `src/server.ts`, `src/seed.ts`, `src/**/*.seed.ts` | A command and its demo data. A break is loud — `npm run db:seed` fails on the spot — and reaches one developer for one minute. All three are excluded from coverage.                   |
+| `src/config/database.ts`                           | One line, `createDb(loadDatabaseUrl())`, which every spec replaces with pglite. Both halves are tested on their own; a break stops `npm start` at boot.                                |
 
 `shared/seeding.ts` is deliberately **not** in that list, and the line is worth stating
 because it is thin. It issues SQL the application never issues — one multi-table

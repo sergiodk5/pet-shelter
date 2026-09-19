@@ -76,6 +76,11 @@ Each of these has broken something before, or is protected only by a test.
   a listening server from `createTestApp().serverWith()`, which **awaits the `listening`
   event**; drop that await and supertest decides the server is its own and closes it,
   hanging every later request in the file.
+- **Don't set Vitest's `isolate: false`**, even though its report suggests it for speed.
+  `src/test.setup.ts` swaps `config/database` for pglite once per spec file; shared, every
+  file sees every other file's rows.
+- **Don't turn controller handlers into methods.** They are arrow fields because the router
+  passes them to Express unbound; a method loses `this` and fails every request.
 - **Don't run two test processes at once.** Concurrent runs cross-talk and fail random
   tests with impossible results (a 401 from an API with no auth). Rule that out before
   debugging a flaky failure.

@@ -222,7 +222,7 @@ arc of commits as the thing it protects. That is why the highest-severity item i
 whole document — object-level authorization — is not near the top: it is a rule about who
 may read which adoption request, and adoption requests do not exist yet.
 
-**Done:** helmet, the `CORS_ORIGINS` allowlist, `config/env.ts`, `createApp(config, db)`,
+**Done:** helmet, the `CORS_ORIGINS` allowlist, `config/env.ts`, `createApp(config)`,
 Zod validation and rejecting a client-supplied `id`, Postgres with parameterized queries,
 CI with a migration-drift guard, and graceful shutdown with a startup connectivity check.
 

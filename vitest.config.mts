@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    setupFiles: ["src/test.setup.ts"],
     include: ["src/**/*.spec.ts"],
     coverage: {
       provider: "v8",
@@ -26,6 +27,8 @@ export default defineConfig({
         // TRUNCATE) and its failure arrives later, when a second module lands.
         "src/seed.ts",
         "src/**/*.seed.ts",
+        // Every spec swaps it for pglite (src/test.setup.ts); docs/architecture.md §7.
+        "src/config/database.ts",
         // Type-only modules compile to an empty file, so there is nothing to
         // measure. v8 records 0 of 0, which the json reporter renders as 100%
         // and the HTML reporter as 0% — noise either way. Excluding them assumes

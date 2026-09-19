@@ -49,8 +49,10 @@ const toRow = (pet: PetUpdate) => ({
   photo: pet.photo,
 });
 
-export const createPetsRepository = (db: Db) => ({
-  findPets: async (filters: PetFilters): Promise<Pet[]> => {
+export class PetsRepository {
+  constructor(private readonly db: Db) {}
+
+  async findPets(filters: PetFilters): Promise<Pet[]> {
     const conditions = [
       filters.species === undefined
         ? undefined
@@ -68,37 +70,40 @@ export const createPetsRepository = (db: Db) => ({
         : lte(petsTable.age, filters.maxAge),
     ].filter((condition) => condition !== undefined);
 
-    const rows = await db
+    const rows = await this.db
       .select()
       .from(petsTable)
       .where(and(...conditions))
       .orderBy(petsTable.id);
 
     return rows.map(toPet);
-  },
+  }
 
-  findPetById: async (id: number): Promise<Pet | undefined> => {
-    const rows = await db.select().from(petsTable).where(eq(petsTable.id, id));
+  async findPetById(id: number): Promise<Pet | undefined> {
+    const rows = await this.db
+      .select()
+      .from(petsTable)
+      .where(eq(petsTable.id, id));
 
     return rows[0] === undefined ? undefined : toPet(rows[0]);
-  },
+  }
 
-  addPet: async (newPet: NewPet): Promise<Pet> => {
+  async addPet(newPet: NewPet): Promise<Pet> {
     try {
-      const rows = await db.insert(petsTable).values(toRow(newPet)).returning();
+      const rows = await this.db
+        .insert(petsTable)
+        .values(toRow(newPet))
+        .returning();
 
       return toPet(rows[0]!);
     } catch (error) {
       return rethrow(error);
     }
-  },
+  }
 
-  updatePet: async (
-    id: number,
-    update: PetUpdate,
-  ): Promise<Pet | undefined> => {
+  async updatePet(id: number, update: PetUpdate): Promise<Pet | undefined> {
     try {
-      const rows = await db
+      const rows = await this.db
         .update(petsTable)
         .set(toRow(update))
         .where(eq(petsTable.id, id))
@@ -108,16 +113,14 @@ export const createPetsRepository = (db: Db) => ({
     } catch (error) {
       return rethrow(error);
     }
-  },
+  }
 
-  removePet: async (id: number): Promise<boolean> => {
-    const rows = await db
+  async removePet(id: number): Promise<boolean> {
+    const rows = await this.db
       .delete(petsTable)
       .where(eq(petsTable.id, id))
       .returning();
 
     return rows.length > 0;
-  },
-});
-
-export type PetsRepository = ReturnType<typeof createPetsRepository>;
+  }
+}

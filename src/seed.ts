@@ -1,5 +1,5 @@
-import { createDb } from "./config/db";
-import { loadConfig, loadDatabaseUrl } from "./config/env";
+import { database } from "./config/database";
+import { loadConfig } from "./config/env";
 import { petsSeeder } from "./modules/pets/pets.seed";
 import { runSeeders } from "./shared/seeding";
 
@@ -14,14 +14,12 @@ const main = async (): Promise<void> => {
     );
   }
 
-  const { db, close } = createDb(loadDatabaseUrl());
-
   try {
-    const total = await runSeeders(db, seeders);
+    const total = await runSeeders(database.db, seeders);
 
     console.log(`Seeded ${total} rows.`);
   } finally {
-    await close();
+    await database.close();
   }
 };
 

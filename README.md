@@ -148,12 +148,12 @@ field rules and status codes: **[`docs/api.md`](docs/api.md)**.
 ```
 src/
 ├─ modules/            # one folder per business area
-│  └─ pets/            # routes, controllers, validators, middleware,
-│                      # repositories, the Drizzle table, its seed data, types
+│  └─ pets/            # pets.module.ts wires repository → controller → router;
+│                      # plus validators, middleware, the table, seed data, types
 ├─ shared/             # cross-cutting code: error handling, shared types,
 │                      # shutdown, the seeding runner
 ├─ config/             # validated env vars, and the database connection
-├─ app.ts              # createApp(config, db): builds the app, never listens
+├─ app.ts              # createApp(config): mounts each module's router, never listens
 ├─ seed.ts             # npm run db:seed — a list of module seeders, nothing else
 └─ server.ts           # checks the database, starts the server, handles signals
 

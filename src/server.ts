@@ -1,11 +1,10 @@
 import { createApp } from "./app";
-import { createDb } from "./config/db";
-import { loadConfig, loadDatabaseUrl } from "./config/env";
+import { database } from "./config/database";
+import { loadConfig } from "./config/env";
 import { createShutdown } from "./shared/shutdown";
 
 const start = async (): Promise<void> => {
   const config = loadConfig();
-  const database = createDb(loadDatabaseUrl());
 
   try {
     await database.ping();
@@ -17,12 +16,9 @@ const start = async (): Promise<void> => {
     });
   }
 
-  const server = createApp(config, database.db).listen(
-    config.port,
-    (): void => {
-      console.log("Listening on port:", config.port);
-    },
-  );
+  const server = createApp(config).listen(config.port, (): void => {
+    console.log("Listening on port:", config.port);
+  });
 
   const shutdown = createShutdown({ server, database });
 

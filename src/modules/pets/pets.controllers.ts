@@ -8,35 +8,43 @@ import {
   parseReplacementPet,
 } from "./pets.validators";
 
-export const createPetsControllers = (repository: PetsRepository) => ({
-  getPets: async (req: Request, res: Response<Pet[]>): Promise<void> => {
-    res.json(await repository.findPets(parseFilters(req.query)));
-  },
+export class PetsController {
+  constructor(private readonly repository: PetsRepository) {}
 
-  getPetById: async (
+  readonly getPets = async (
+    req: Request,
+    res: Response<Pet[]>,
+  ): Promise<void> => {
+    res.json(await this.repository.findPets(parseFilters(req.query)));
+  };
+
+  readonly getPetById = async (
     req: Request<{ id: string }>,
     res: Response<Pet>,
   ): Promise<void> => {
-    const pet = await repository.findPetById(Number(req.params.id));
+    const pet = await this.repository.findPetById(Number(req.params.id));
 
     if (!pet) {
       throw new NotFoundError("No pet found.");
     }
 
     res.json(pet);
-  },
+  };
 
-  createPet: async (req: Request, res: Response<Pet>): Promise<void> => {
-    const pet = await repository.addPet(parseNewPet(req.body));
+  readonly createPet = async (
+    req: Request,
+    res: Response<Pet>,
+  ): Promise<void> => {
+    const pet = await this.repository.addPet(parseNewPet(req.body));
 
     res.status(201).location(`/pets/${pet.id}`).json(pet);
-  },
+  };
 
-  replacePet: async (
+  readonly replacePet = async (
     req: Request<{ id: string }>,
     res: Response<Pet>,
   ): Promise<void> => {
-    const pet = await repository.updatePet(
+    const pet = await this.repository.updatePet(
       Number(req.params.id),
       parseReplacementPet(req.body),
     );
@@ -46,18 +54,16 @@ export const createPetsControllers = (repository: PetsRepository) => ({
     }
 
     res.json(pet);
-  },
+  };
 
-  deletePet: async (
+  readonly deletePet = async (
     req: Request<{ id: string }>,
     res: Response<never>,
   ): Promise<void> => {
-    if (!(await repository.removePet(Number(req.params.id)))) {
+    if (!(await this.repository.removePet(Number(req.params.id)))) {
       throw new NotFoundError("No pet found.");
     }
 
     res.status(204).end();
-  },
-});
-
-export type PetsControllers = ReturnType<typeof createPetsControllers>;
+  };
+}

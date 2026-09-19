@@ -2,15 +2,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Database } from "../../config/db";
 import { createTestDb } from "../../config/db.fixtures";
 import { ConflictError } from "../../shared/errors/httpError";
-import { createPetsRepository } from "./pets.repositories";
+import { PetsRepository } from "./pets.repositories";
 import type { NewPet } from "./pets.types";
 
 let database: Database;
-let repository: ReturnType<typeof createPetsRepository>;
+let repository: PetsRepository;
 
 beforeAll(async () => {
   database = await createTestDb();
-  repository = createPetsRepository(database.db);
+  repository = new PetsRepository(database.db);
 });
 
 afterAll(() => database.close());
@@ -26,7 +26,7 @@ const newPet: NewPet = {
   photo: "p",
 };
 
-describe("createPetsRepository error mapping", () => {
+describe("PetsRepository error mapping", () => {
   it("turns a duplicate microchip id into a ConflictError", async () => {
     await repository.addPet({ ...newPet, microchipId: "CHIP-A" });
 
